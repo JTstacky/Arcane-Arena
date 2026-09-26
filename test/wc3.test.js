@@ -143,7 +143,7 @@ test('shield is autocast: it goes up by itself before a fireball hits, and canno
   assert.ok(a.unit.hp < a.unit.maxHp, 'back at the caster');
 });
 
-test('scourge winds up for 1 s before the blast, and a move order cancels it', () => {
+test('scourge winds up for 1 s, cannot be cancelled, and orders wait for it', () => {
   const { g, a, b } = duel();
   b.unit.x = 2; // inside the blast
   const hp = b.unit.hp;
@@ -160,7 +160,12 @@ test('scourge winds up for 1 s before the blast, and a move order cancels it', (
   const hp2 = d.b.unit.hp;
   d.g.command(1, { c: 'cast', spell: 'scourge', x: 0, y: 0 });
   for (let i = 0; i < 10; i++) d.g.tick(STEP);
+  const x0 = d.a.unit.x;
   d.g.command(1, { c: 'move', x: -5, y: 0 });
-  for (let i = 0; i < 40; i++) d.g.tick(STEP);
-  assert.equal(d.b.unit.hp, hp2, 'cancelled');
+  for (let i = 0; i < 20; i++) d.g.tick(STEP);
+  assert.equal(d.a.unit.x, x0, 'no walking during the wind-up');
+  for (let i = 0; i < 20; i++) d.g.tick(STEP);
+  assert.ok(d.b.unit.hp < hp2, 'the blast still went off');
+  for (let i = 0; i < 30; i++) d.g.tick(STEP);
+  assert.ok(d.a.unit.x < x0, 'the queued move ran afterwards');
 });

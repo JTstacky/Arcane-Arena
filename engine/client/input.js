@@ -103,8 +103,8 @@ export class Input {
     if (a.self) {
       const unit = this.world.myView();
       this.castAt(a.self, unit ? { x: unit.x, y: unit.z } : { x: 0, y: 0 }, false);
-      // A spell with a wind-up (Scourge) is cancelled by a new order, so
-      // held right-click and the joystick wait for it.
+      // During a wind-up (Scourge) orders are queued on the server, so held
+      // right-click and the joystick hold off rather than stack them up.
       if (a.hold) this.holdPause = performance.now() + 450 + a.hold * 1000;
       return;
     }

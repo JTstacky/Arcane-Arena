@@ -201,7 +201,7 @@ export class WarlockGame {
         // Measured in WC3: an order given during the cast point waits for it
         // to end instead of cancelling the spell. Before the cast has begun
         // (while still turning), a new order replaces the spell.
-        if (u.casting?.lock || u.buffs.dash) u.queued = order;
+        if (u.casting?.lock || u.casting?.charge > 0 || u.buffs.dash) u.queued = order;
         else {
           u.casting = null;
           this.doOrder(u, order);
@@ -292,7 +292,7 @@ export class WarlockGame {
     const lvl = s.spells[id];
     if (!def || !lvl || !u?.alive || u.stun > 0) return;
     if (id === 'shield') return; // autocast only: see autoShield()
-    if (u.casting?.lock || u.buffs.dash) {
+    if (u.casting?.lock || u.casting?.charge > 0 || u.buffs.dash) {
       u.queued = { c: 'cast', id, tx, ty };
       return;
     }
@@ -367,8 +367,9 @@ export class WarlockGame {
       u.casting = null;
       return this.notReady(s);
     }
-    // Spells with a cast time (Scourge) wind up first: the caster stands
-    // still, and an order given now cancels the spell, as in WC3.
+    // Spells with a cast time (Scourge) wind up first. As in the map, the
+    // wind-up can't be stopped: the caster can't walk (momentum and
+    // knockback still carry it), and orders given meanwhile wait for it.
     const castTime = SPELLS[c.id].castTime;
     if (castTime && c.charge == null) {
       c.charge = castTime;
@@ -440,7 +441,7 @@ export class WarlockGame {
           if (!v?.alive || o === s) continue;
           const dd = dist(u.x, u.y, v.x, v.y);
           if (dd > aoe + v.r) continue;
-          this.damage(o, dmg, s, v.x - u.x || 0.01, v.y - u.y, 0.75 + 0.25 * (1 - clamp(dd / aoe, 0, 1)));
+          this.damage(o, dmg, s, v.x - u.x || 0.01, v.y - u.y); // full knockback: a close-range heavy hitter
         }
         u.hp = Math.max(1, u.hp - dmg);
         this.ev({ k: 'boom', x: round1(u.x), y: round1(u.y), r: aoe, c: def.color, big: 1 });
