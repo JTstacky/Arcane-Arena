@@ -41,9 +41,11 @@ npm run build      # static site → dist/
 
 ## Deployment
 
-The game is published on **tenggames.com.au/arcane-arena/** as part of the Teng Games site ([JTstacky/Chess-tutor](https://github.com/JTstacky/Chess-tutor)). That site's deploy clones and builds this repo.
+The game is published at **tenggames.com.au/arcane-arena/** as part of the Teng Games site ([JTstacky/Chess-tutor](https://github.com/JTstacky/Chess-tutor)). As with the site's other games, the built files are committed into that repo at `public/arcane-arena/`.
 
-On every push to `main`, `.github/workflows/publish.yml` tests and builds, then asks the site to redeploy. That step needs the repository secret `SITE_DISPATCH_TOKEN`: a fine-grained token with access to Chess-tutor only and **Contents: Read and write**. Without the secret, changes go live on the site's next deploy.
+On every push to `main`, `.github/workflows/publish.yml` tests and builds, then commits the build to the site as "Arcane Arena: update to the latest build". The site's own deploy then publishes it.
+
+That step needs the repository secret `SITE_DEPLOY_TOKEN`: a fine-grained token with access to Chess-tutor only and **Contents: Read and write**. Without the secret, run `scripts/update-games.sh` in Chess-tutor and commit the result.
 
 ## How it works
 

@@ -1,17 +1,22 @@
-# On every push to main: test and build, then ask the Teng Games site
-# (JTstacky/Chess-tutor, which serves tenggames.com.au) to redeploy. Its
-# deploy builds this repo into tenggames.com.au/arcane-arena/.
+# On every push to main: test and build, then commit the build into the
+# Teng Games site (JTstacky/Chess-tutor) at public/arcane-arena/, the same way
+# Beast Binder and Demon Dragon are included. The site's own deploy then
+# publishes it to tenggames.com.au/arcane-arena/.
 #
-# One-time setup: add a repository secret SITE_DISPATCH_TOKEN — a fine-grained
+# One-time setup: add a repository secret SITE_DEPLOY_TOKEN, a fine-grained
 # personal access token with access to JTstacky/Chess-tutor only and
-# "Contents: Read and write". Without it the site still picks up changes on its
-# next deploy (or run "Deploy to GitHub Pages" in Chess-tutor by hand).
+# "Contents: Read and write". Without it, run scripts/update-games.sh in
+# Chess-tutor and commit the result instead.
 name: Publish to tenggames.com.au
 
 on:
   push:
     branches: [main]
   workflow_dispatch:
+
+concurrency:
+  group: publish
+  cancel-in-progress: true
 
 jobs:
   publish:
@@ -25,16 +30,20 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
-      - name: Trigger the tenggames.com.au deploy
+      - name: Commit the build to the Teng Games site
         env:
-          TOKEN: ${{ secrets.SITE_DISPATCH_TOKEN }}
+          TOKEN: ${{ secrets.SITE_DEPLOY_TOKEN }}
         run: |
           if [ -z "$TOKEN" ]; then
-            echo "::warning::SITE_DISPATCH_TOKEN is not set; run the Chess-tutor deploy by hand to publish."
+            echo "::warning::SITE_DEPLOY_TOKEN is not set, so the site was not updated. Run scripts/update-games.sh in Chess-tutor instead."
             exit 0
           fi
-          curl -fsS -X POST \
-            -H "Authorization: Bearer $TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            https://api.github.com/repos/JTstacky/Chess-tutor/dispatches \
-            -d '{"event_type":"game-updated","client_payload":{"repo":"${{ github.repository }}","sha":"${{ github.sha }}"}}'
+          git clone --depth 1 "https://x-access-token:$TOKEN@github.com/JTstacky/Chess-tutor.git" site
+          rm -rf site/public/arcane-arena
+          cp -r dist site/public/arcane-arena
+          cd site
+          git add public/arcane-arena
+          if git diff --cached --quiet; then echo "No changes"; exit 0; fi
+          git -c user.name="${{ github.actor }}" -c user.email="${{ github.actor }}@users.noreply.github.com" \
+            commit -m "Arcane Arena: update to the latest build" -m "From ${{ github.repository }}@${{ github.sha }}"
+          git push
