@@ -119,3 +119,26 @@ test('lava burns 0.9 HP every 0.1 s and adds half of it to damage taken', () => 
   assert.ok(Math.abs(100 - a.unit.hp - (27 - 1.5)) < 1.2, `hp ${a.unit.hp.toFixed(2)}`);
   assert.ok(Math.abs(a.unit.kbPoints - 13.5) < 0.5, `damage taken ${a.unit.kbPoints}`);
 });
+
+test('lobby options: no rocks by default; everyone starts with Fireball and Scourge', () => {
+  const g = new WarlockGame(fakeRoom(2), { rounds: 3 });
+  g.startRound();
+  assert.equal(g.obstacles.length, 0);
+  assert.deepEqual(g.ps.get(1).spells, { fireball: 1, scourge: 1 });
+  const r = new WarlockGame(fakeRoom(2), { rounds: 3, rocks: 1 });
+  r.startRound();
+  assert.ok(r.obstacles.length > 0, 'rocks on when the host picks them');
+});
+
+test('shield is autocast: it goes up by itself before a fireball hits, and cannot be cast by hand', () => {
+  const { g, a, b } = duel();
+  b.spells.shield = 1;
+  g.cast(b, 'shield', b.unit.x, b.unit.y);
+  assert.ok(!(b.unit.buffs.shield > 0), 'no manual cast');
+  g.command(1, { c: 'cast', spell: 'fireball', x: 10, y: 0 });
+  const hp = b.unit.hp;
+  for (let i = 0; i < 60; i++) g.tick(STEP);
+  assert.ok(b.cds.shield > 0, 'shield went up and is cooling down');
+  assert.equal(b.unit.hp, hp, 'the fireball was reflected');
+  assert.ok(a.unit.hp < a.unit.maxHp, 'back at the caster');
+});

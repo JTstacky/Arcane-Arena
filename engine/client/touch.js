@@ -8,8 +8,7 @@
 //    its spell for the next tap only, then taps go back to the default
 //    attack. Tap the same button again to disarm it. Self-cast spells
 //    (shield…) fire at once;
-//  - the camera follows the hero; pinch zooms and a two-finger drag pans
-//    (the ⌖ button re-centres and follows again).
+//  - the camera always follows the hero at a fixed distance (no zoom or pan).
 
 import { unlockAudio } from './audio.js';
 
@@ -30,8 +29,7 @@ export class Touch {
     this.moving = false;
     this.lastDir = null;
     this.lastSent = 0;
-    this.touches = new Map(); // canvas touches: pointerId -> {x, y, x0, y0, t0}
-    this.pinch = null;
+    this.touches = new Map(); // canvas touches: pointerId -> {x, y, x0, y0}
 
     document.body.classList.add('touch');
     input.quickCast = false; // no cursor to cast at: always tap a target
@@ -39,8 +37,7 @@ export class Touch {
 
     const hud = document.getElementById('hud');
     hud.insertAdjacentHTML('beforeend', `
-      <div id="joy"><div id="joy-base"><div id="joy-knob"></div></div></div>
-      <button id="recentre" class="iconbtn" title="Centre camera">⌖</button>`);
+      <div id="joy"><div id="joy-base"><div id="joy-knob"></div></div></div>`);
     document.body.insertAdjacentHTML('beforeend', '<div id="rotate"><div>↻</div><p>Turn your phone sideways to play.</p></div>');
 
     const joy = document.getElementById('joy');
@@ -48,10 +45,6 @@ export class Touch {
     joy.addEventListener('pointermove', (e) => this.stickMove(e));
     joy.addEventListener('pointerup', (e) => this.stickUp(e));
     joy.addEventListener('pointercancel', (e) => this.stickUp(e));
-    document.getElementById('recentre').addEventListener('click', () => {
-      world.follow = true;
-      world.centerOnMe?.();
-    });
 
     const canvas = world.canvas;
     canvas.addEventListener('pointerdown', (e) => this.down(e));
@@ -173,14 +166,14 @@ export class Touch {
     this.moving = true;
   }
 
-  // ------------------------------------------------- taps, pinch and pan
+  // -------------------------------------------------------------- taps
 
   down(e) {
     if (e.pointerType === 'mouse') return;
     unlockAudio();
     this.input.lastTouch = performance.now();
-    this.touches.set(e.pointerId, { x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY, t0: performance.now() });
-    if (this.touches.size === 2) this.startPinch();
+    this.world.follow = true;
+    this.touches.set(e.pointerId, { x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY });
   }
 
   move(e) {
@@ -188,7 +181,6 @@ export class Touch {
     if (!t) return;
     t.x = e.clientX;
     t.y = e.clientY;
-    if (this.pinch && this.touches.size >= 2) this.updatePinch();
   }
 
   up(e, cancelled = false) {
@@ -196,14 +188,7 @@ export class Touch {
     if (!t) return;
     this.input.lastTouch = performance.now();
     this.touches.delete(e.pointerId);
-    if (this.pinch) {
-      if (this.touches.size < 2) this.pinch = null;
-      t.used = true;
-      for (const o of this.touches.values()) o.used = true; // the finger left over is not a tap
-      return;
-    }
-    if (cancelled || t.used) return;
-    if (Math.hypot(t.x - t.x0, t.y - t.y0) > TAP_MOVE) return;
+    if (cancelled || Math.hypot(t.x - t.x0, t.y - t.y0) > TAP_MOVE) return;
     this.tap(t.x, t.y);
   }
 
@@ -237,30 +222,5 @@ export class Touch {
       }
     }
     return best ? { x: best.x, y: best.z } : p;
-  }
-
-  startPinch() {
-    const [a, b] = [...this.touches.values()];
-    this.pinch = { d0: Math.hypot(a.x - b.x, a.y - b.y) || 1, zoom0: this.world.zoom, mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 };
-  }
-
-  updatePinch() {
-    const [a, b] = [...this.touches.values()];
-    const w = this.world;
-    const pz = this.pinch;
-    const d = Math.hypot(a.x - b.x, a.y - b.y) || 1;
-    w.zoom = Math.max(16, Math.min(45, pz.zoom0 * (pz.d0 / d)));
-    // Pan so the ground under the fingers' midpoint stays under them.
-    const mx = (a.x + b.x) / 2;
-    const my = (a.y + b.y) / 2;
-    const g0 = w.screenToGround(pz.mx, pz.my);
-    const g1 = w.screenToGround(mx, my);
-    if (g0 && g1 && (Math.abs(mx - pz.mx) > 1 || Math.abs(my - pz.my) > 1)) {
-      w.follow = false;
-      w.focus.x += g0.x - g1.x;
-      w.focus.z += g0.y - g1.y;
-    }
-    pz.mx = mx;
-    pz.my = my;
   }
 }

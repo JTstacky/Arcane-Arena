@@ -27,10 +27,12 @@ Arcane Arena is a browser remake of **Warlock**, the classic Warcraft III custom
   - Green order-confirmation arrows, the blue targeting reticle, and "Spell is not ready yet."
   - For tuning: a Movement Lab overlay (F8) and host commands (`-turnrate`, `-propwindow`, `-castpoint`). `npm test` checks the engine against the measured numbers.
 - **Spells:**
-  - Fireball and Scourge;
+  - Fireball and Scourge (the close-range blast that also hurts you), which everyone starts with;
   - one spell per shop column: Lightning, Homing, Boomerang, Teleport, Thrust, Swap, Drain, Bouncer, Meteor, Windwalk, Shield, Rush, Gravity, Link;
   - items;
-  - obstacles, shields that reflect projectiles, and Lightning detonating a Fireball.
+  - Shield is an autocast: it goes up by itself when a projectile is about to hit you and reflects it;
+  - rock obstacles on the arena, off by default (a lobby option), and Lightning detonating a Fireball.
+- **Phones:** joystick to walk, tap to throw a fireball, spell buttons arm a spell for one tap; the camera follows at a fixed distance.
 - **Graphics and sound** are generated in code with Three.js and WebAudio. There are no asset files.
 
 ## Development

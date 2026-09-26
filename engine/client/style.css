@@ -279,7 +279,7 @@ body:not(.inlobby) #homelink, #homelink[hidden] { display: none; }
 .touchonly { display: none; }
 body.touch .touchonly { display: inline; }
 body.touch .mouseonly { display: none; }
-#joy, #recentre, #rotate { display: none; }
+#joy, #rotate { display: none; }
 body.touch #joy {
   display: block; position: fixed; left: calc(14px + env(safe-area-inset-left)); bottom: 14px; width: 150px; height: 150px;
   touch-action: none; user-select: none; -webkit-user-select: none;
@@ -294,7 +294,6 @@ body.touch #joy {
   background: radial-gradient(circle at 40% 35%, #6a5634, #2a2014); border: 2px solid var(--gold-dim);
   box-shadow: 0 3px 10px rgba(0, 0, 0, 0.6); transition: transform 0.08s;
 }
-body.touch #recentre { display: grid; position: fixed; left: calc(18px + env(safe-area-inset-left)); bottom: 172px; }
 body.touch canvas { touch-action: none; }
 body.touch #hud, body.touch #hud * { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 
@@ -325,8 +324,7 @@ body.touch #errmsg { bottom: 150px; font-size: 14px; }
 body.touch #targethint { bottom: auto; top: 42px; font-size: 13px; }
 body.touch #shop { top: 40px; bottom: 8px; max-height: none; width: calc(100vw - 16px); padding: 10px 12px; }
 body.touch #shop:not([hidden]) ~ #console #cmdcard,
-body.touch #shop:not([hidden]) ~ #joy,
-body.touch #shop:not([hidden]) ~ #recentre { display: none; }
+body.touch #shop:not([hidden]) ~ #joy { display: none; }
 body.touch #tooltip { max-width: 70vw; }
 
 /* Landscape only. */

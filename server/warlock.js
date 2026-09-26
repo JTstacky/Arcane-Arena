@@ -27,6 +27,7 @@ export class WarlockGame {
     this.room = room;
     this.mode = 'warlock';
     this.rounds = settings.rounds || 11;
+    this.rocks = !!settings.rocks; // obstacles on the arena: a lobby option, off by default
     this.round = 0;
     this.time = 0;
     this.events = [];
@@ -47,8 +48,10 @@ export class WarlockGame {
         deaths: 0,
         dmg: 0,
         roundDmg: 0,
-        spells: { fireball: 1 },
-        slots: ['fireball', null, null, null, null, null, null, null],
+        // Everyone starts with the two basics: Fireball and Scourge, the
+        // close-range blast that hurts the caster too.
+        spells: { fireball: 1, scourge: 1 },
+        slots: ['fireball', null, null, null, null, null, null, 'scourge'],
         invested: {},
         items: {},
         cds: {},
@@ -151,6 +154,7 @@ export class WarlockGame {
 
   placeObstacles() {
     this.obstacles = [];
+    if (!this.rocks) return;
     const n = Math.floor(rand(2, 9));
     for (let tries = 0; tries < 200 && this.obstacles.length < n; tries++) {
       const a = rand(0, Math.PI * 2);
@@ -253,7 +257,12 @@ export class WarlockGame {
 
   sell(s, id) {
     if (this.phase !== 'shop') return;
-    if (SPELLS[id] && id !== 'fireball' && s.spells[id]) {
+    if (id === 'scourge' && s.invested.scourge) {
+      // A starting spell: selling refunds the upgrades and leaves level 1.
+      s.gold += Math.floor(s.invested.scourge / 2);
+      delete s.invested.scourge;
+      s.spells.scourge = 1;
+    } else if (SPELLS[id] && id !== 'fireball' && id !== 'scourge' && s.spells[id]) {
       s.gold += Math.floor((s.invested[id] || 0) / 2);
       delete s.spells[id];
       delete s.invested[id];
@@ -282,6 +291,7 @@ export class WarlockGame {
     const def = SPELLS[id];
     const lvl = s.spells[id];
     if (!def || !lvl || !u?.alive || u.stun > 0) return;
+    if (id === 'shield') return; // autocast only: see autoShield()
     if (u.casting?.lock || u.buffs.dash) {
       u.queued = { c: 'cast', id, tx, ty };
       return;
@@ -291,6 +301,29 @@ export class WarlockGame {
     u.queued = null;
     u.casting = { id, tx, ty, lock: 0 };
     if (SELF_CAST.has(id) || Math.abs(wrapAngle(Math.atan2(ty - u.y, tx - u.x) - u.heading)) < 1e-3) this.beginCast(s);
+  }
+
+  // Shield is an autocast: when it is learned and ready, it goes up by
+  // itself (no cast point, nothing interrupted) as a hostile projectile on a
+  // collision course is about to reach the shield's edge.
+  autoShield(s, p) {
+    const u = s.unit;
+    const lvl = s.spells.shield;
+    if (!lvl || !u?.alive || u.buffs.shield > 0 || (s.cds.shield || 0) > 0) return;
+    const rx = u.x - p.x;
+    const ry = u.y - p.y;
+    const sp = Math.hypot(p.vx, p.vy) || 1;
+    const along = (rx * p.vx + ry * p.vy) / sp; // distance to the closest approach
+    if (along <= 0) return;
+    const miss = Math.abs(rx * p.vy - ry * p.vx) / sp;
+    if (miss > u.r + p.r + 0.3) return;
+    const def = SPELLS.shield;
+    const R = stat(def, 'aoe', lvl);
+    if (Math.hypot(rx, ry) > R + sp * 0.12) return; // about 4 steps out
+    u.buffs.shield = stat(def, 'duration', lvl);
+    u.buffs.shieldR = R;
+    s.cds.shield = stat(def, 'cd', lvl);
+    this.ev({ k: 'cast', s: 'shield', x: round1(u.x), y: round1(u.y), u: u.id });
   }
 
   notReady(s) {
@@ -836,6 +869,8 @@ export class WarlockGame {
       }
       if (p.kind === 'gravity') continue;
 
+      // Shields raise themselves when a projectile is about to hit.
+      if (SOLID_PROJECTILES.has(p.kind)) for (const s of warlocks) if (s.id !== p.owner) this.autoShield(s, p);
       // Shields reflect projectiles entering their radius.
       let reflected = false;
       for (const s of warlocks) {
@@ -1056,7 +1091,6 @@ export class WarlockGame {
       const cx = p.x + p.vx * t - u.x;
       const cy = p.y + p.vy * t - u.y;
       if (Math.hypot(cx, cy) > u.r + p.r + 0.7) continue;
-      if (t < 0.45 && ready('shield') && Math.random() < 0.7) return this.cast(s, 'shield', u.x, u.y);
       if (t < 0.45 && ready('rush') && Math.random() < 0.4) return this.cast(s, 'rush', u.x, u.y);
       let px = -p.vy / sp;
       let py = p.vx / sp;

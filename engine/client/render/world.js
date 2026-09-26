@@ -282,55 +282,32 @@ export class World {
       liquid.position.y = -0.35;
       this.mapGroup.add(liquid);
       this.liquids.push(liquid.material);
-      // The platform is a unit disc scaled by the live arena radius.
-      const geo = new THREE.CylinderGeometry(1, 1.04, 1, 128, 1);
-      floorTex.repeat.set(f.r / 2.5, f.r / 2.5);
-      let side = M.mat(map.theme === 'lava' ? '#3a302a' : '#9cc4dc');
-      let topTex = floorTex;
       if (map.theme === 'lava') {
-        // Painted marble slabs and a heat-scorched stone rim.
-        topTex = artTexture('tex_marble', (g, s) => { g.fillStyle = '#8a8580'; g.fillRect(0, 0, s, s); }, { repeat: true });
-        const rimTex = artTexture('tex_rim', (g, s) => { g.fillStyle = '#3a302a'; g.fillRect(0, 0, s, s); }, { repeat: true });
-        side = new THREE.MeshStandardMaterial({ map: rimTex, roughness: 0.95 });
-      }
-      const top = new THREE.MeshStandardMaterial({ map: topTex, roughness: map.theme === 'ice' ? 0.25 : 0.85, metalness: map.theme === 'ice' ? 0.1 : 0 });
-      const disc = new THREE.Mesh(geo, [side, top, side]);
-      disc.position.y = -0.5;
-      disc.receiveShadow = true;
-      disc.scale.set(f.r, 1, f.r);
-      disc.userData.worldUV = map.theme === 'lava';
-      this.mapGroup.add(disc);
-      this.floorMesh = disc;
-      this.floorR = null;
-      this.setFloorRadius(f.r);
-      if (map.theme === 'lava') {
-        const rim = new THREE.Mesh(new THREE.TorusGeometry(1, 0.012, 6, 128).rotateX(Math.PI / 2), new THREE.MeshBasicMaterial({ color: '#ff7a20', toneMapped: false }));
-        rim.position.y = -0.25;
-        rim.scale.set(f.r, 1, f.r);
-        disc.userData.rim = rim;
-        this.mapGroup.add(rim);
-        // Volcanic rocks jutting out of the lava sea.
-        const rockMat = new THREE.MeshStandardMaterial({ map: artTexture('tex_rock', (g, s) => { g.fillStyle = '#2a2220'; g.fillRect(0, 0, s, s); }, { repeat: true }), color: '#c8b4a4', emissive: '#5a1a06', emissiveIntensity: 0.6, roughness: 0.95, flatShading: true });
-        for (let i = 0; i < 26; i++) {
-          const a = Math.random() * Math.PI * 2;
-          const r = f.r + 6 + Math.random() * 16;
-          const rock = M.lavaRock(1 + Math.random() * 2.5);
-          rock.children[0].material = rockMat;
-          rock.position.set(Math.cos(a) * r, -0.6, Math.sin(a) * r);
-          this.mapGroup.add(rock);
-        }
-        const glow = new THREE.PointLight('#ff5a10', 30, 60, 1.2);
-        glow.position.set(0, -2, 0);
-        this.mapGroup.add(glow);
+        this.buildLavaFloor(f.r);
+        this.addLavaRocks(f.r);
       } else {
-        for (let i = 0; i < 18; i++) {
-          const a = Math.random() * Math.PI * 2;
-          const r = f.r + 8 + Math.random() * 14;
-          const berg = M.rock(1.5 + Math.random() * 2);
-          berg.children[0].material = M.mat('#e8f4ff');
-          berg.position.set(Math.cos(a) * r, -0.8, Math.sin(a) * r);
-          this.mapGroup.add(berg);
-        }
+        // The platform is a unit disc scaled by the live arena radius.
+        const geo = new THREE.CylinderGeometry(1, 1.04, 1, 128, 1);
+        floorTex.repeat.set(f.r / 2.5, f.r / 2.5);
+        const side = M.mat('#9cc4dc');
+        const topTex = floorTex;
+        const top = new THREE.MeshStandardMaterial({ map: topTex, roughness: map.theme === 'ice' ? 0.25 : 0.85, metalness: map.theme === 'ice' ? 0.1 : 0 });
+        const disc = new THREE.Mesh(geo, [side, top, side]);
+        disc.position.y = -0.5;
+        disc.receiveShadow = true;
+        disc.scale.set(f.r, 1, f.r);
+        this.mapGroup.add(disc);
+        this.floorMesh = disc;
+        this.floorR = null;
+        this.setFloorRadius(f.r);
+          for (let i = 0; i < 18; i++) {
+            const a = Math.random() * Math.PI * 2;
+            const r = f.r + 8 + Math.random() * 14;
+            const berg = M.rock(1.5 + Math.random() * 2);
+            berg.children[0].material = M.mat('#e8f4ff');
+            berg.position.set(Math.cos(a) * r, -0.8, Math.sin(a) * r);
+            this.mapGroup.add(berg);
+          }
       }
     } else {
       const outerTex = noiseTexture(theme.outer[0], theme.outer[1], theme.outer[2]);
@@ -702,22 +679,86 @@ export class World {
     }
   }
 
+  // The lava arena's floor: marble slabs on a flat disc whose edge is drawn
+  // in the shader, not as a hard circle. Toward the edge the slabs darken
+  // into scorched crust, the border wobbles with noise (about ±0.5 m around
+  // the true lava line), glows and fades into the lava.
+  buildLavaFloor(r) {
+    const map = artTexture('tex_marble', (g, s) => { g.fillStyle = '#8a8580'; g.fillRect(0, 0, s, s); }, { repeat: true });
+    const mat = new THREE.MeshStandardMaterial({ map, roughness: 0.85, transparent: true });
+    const uR = { value: r };
+    mat.onBeforeCompile = (sh) => {
+      sh.uniforms.uR = uR;
+      sh.vertexShader = sh.vertexShader
+        .replace('#include <common>', '#include <common>\nvarying vec2 vW;')
+        .replace('#include <worldpos_vertex>', '#include <worldpos_vertex>\nvW = (modelMatrix * vec4(transformed, 1.0)).xz;');
+      sh.fragmentShader = sh.fragmentShader
+        .replace('#include <common>', `#include <common>
+varying vec2 vW;
+uniform float uR;
+float hsh(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float vnoise(vec2 p) {
+  vec2 i = floor(p), f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hsh(i), hsh(i + vec2(1, 0)), f.x), mix(hsh(i + vec2(0, 1)), hsh(i + vec2(1, 1)), f.x), f.y);
+}
+float fbm(vec2 p) { return vnoise(p) * 0.6 + vnoise(p * 2.3 + 7.1) * 0.3 + vnoise(p * 5.1 + 3.7) * 0.1; }`)
+        .replace('#include <map_fragment>', `#include <map_fragment>
+float edgeN = fbm(vW * 0.3) - 0.5 + (vnoise(vW * 1.4) - 0.5) * 0.35;
+float inside = uR + edgeN * 1.6 - length(vW); // metres inside the ragged edge
+// Scorched crust creeps in patchily from the edge.
+float scorch = 1.0 - smoothstep(0.0, 3.6, inside + (fbm(vW * 0.9 + 11.0) - 0.5) * 2.6);
+scorch *= 0.75 + 0.35 * fbm(vW * 3.0);
+diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.09, 0.055, 0.04), clamp(scorch * 1.15, 0.0, 0.94));
+diffuseColor.a *= smoothstep(-0.1, 0.45, inside);`)
+        .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+float heat = 1.0 - smoothstep(0.0, 1.1, inside + (fbm(vW * 2.2) - 0.5) * 0.8);
+totalEmissiveRadiance += vec3(1.0, 0.32, 0.05) * heat * heat * (0.6 + fbm(vW * 2.7) * 1.2);`);
+    };
+    const floor = new THREE.Mesh(new THREE.CircleGeometry(1, 160).rotateX(-Math.PI / 2), mat);
+    floor.receiveShadow = true;
+    floor.renderOrder = 1;
+    floor.userData = { worldUV: true, flat: true, uR, margin: 1 };
+    this.mapGroup.add(floor);
+    this.floorMesh = floor;
+    this.floorR = null;
+    this.setFloorRadius(r);
+  }
+
+  // Volcanic rocks jutting out of the lava sea, and the lava's glow.
+  addLavaRocks(r0) {
+    const rockMat = new THREE.MeshStandardMaterial({ map: artTexture('tex_rock', (g, s) => { g.fillStyle = '#2a2220'; g.fillRect(0, 0, s, s); }, { repeat: true }), color: '#c8b4a4', emissive: '#5a1a06', emissiveIntensity: 0.6, roughness: 0.95, flatShading: true });
+    for (let i = 0; i < 26; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const r = r0 + 6 + Math.random() * 16;
+      const rock = M.lavaRock(1 + Math.random() * 2.5);
+      rock.children[0].material = rockMat;
+      rock.position.set(Math.cos(a) * r, -0.6, Math.sin(a) * r);
+      this.mapGroup.add(rock);
+    }
+    const glow = new THREE.PointLight('#ff5a10', 30, 60, 1.2);
+    glow.position.set(0, -2, 0);
+    this.mapGroup.add(glow);
+  }
+
   setFloorRadius(r) {
     r = Math.max(0.01, r);
     if (r === this.floorR) return;
-    this.floorMesh.scale.set(r, 1, r);
-    if (this.floorMesh.userData.worldUV) {
-      // Keep the texture fixed in the world as the disc shrinks: slabs are
-      // 128 units (2.56 m) and the texture holds 4 × 4 of them; the rim
-      // texture repeats every 4 m around the edge.
-      const [sideMat, topMat] = this.floorMesh.material;
+    const ud = this.floorMesh.userData;
+    if (ud.flat) {
+      // The mesh reaches past the edge so the ragged border fits on it; the
+      // texture stays fixed in the world: 4 × 4 slabs of 128 units (2.56 m).
+      const R = r + ud.margin;
+      this.floorMesh.scale.set(R, 1, R);
       const L = 4 * 2.56;
-      topMat.map.repeat.set((2 * r) / L, (2 * r) / L);
-      topMat.map.offset.set(-r / L, -r / L);
-      sideMat.map.repeat.set(Math.max(1, Math.round((2 * Math.PI * r) / 4)), 1);
+      const m = this.floorMesh.material.map;
+      m.repeat.set((2 * R) / L, (2 * R) / L);
+      m.offset.set(-R / L, -R / L);
+      ud.uR.value = r;
+      this.floorR = r;
+      return;
     }
-    const rim = this.floorMesh.userData.rim;
-    if (rim) rim.scale.set(r, 1, r);
+    this.floorMesh.scale.set(r, 1, r);
     this.floorR = r;
   }
 

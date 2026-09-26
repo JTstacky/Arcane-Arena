@@ -185,7 +185,7 @@ export function startApp(cfg) {
         ${isHost() && !mine ? `<button class="kick" data-kick="${p.id}" title="Remove">✕</button>` : ''}</li>
         ${mine && state.colorPickOpen ? `<div class="colorpick">${PLAYER_COLORS.map((pc, i) => (used.has(i) ? '' : `<i data-color="${i}" style="background:${pc.hex}" title="${pc.name}"></i>`)).join('')}</div>` : ''}`;
     }).join('');
-    $('modeopts').innerHTML = cfg.options.map((o) => `<span>${o.label}:</span>${o.values.map((v) => `<button class="btn small ${L.settings[o.key] === v ? 'sel' : ''}" data-opt="${o.key}" data-val="${v}" ${isHost() ? '' : 'disabled'}>${v}</button>`).join('')}`).join('');
+    $('modeopts').innerHTML = cfg.options.map((o) => `<span>${o.label}:</span>${o.values.map((v, i) => `<button class="btn small ${L.settings[o.key] === v ? 'sel' : ''}" data-opt="${o.key}" data-val="${v}" ${isHost() ? '' : 'disabled'}>${o.labels?.[i] ?? v}</button>`).join('')}`).join('');
     $('addbot').hidden = !isHost();
     $('start').hidden = !isHost();
     $('waithost').hidden = isHost();
@@ -218,7 +218,7 @@ export function startApp(cfg) {
         hud.reset();
         showScreen('game');
         world.follow = follow();
-        world.zoom = TOUCH ? Math.min(cfg.gameZoom ?? 30, 28) : cfg.gameZoom ?? 30;
+        world.zoom = cfg.gameZoom ?? 30;
         break;
       case 'map':
         world.setMap(m.map);

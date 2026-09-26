@@ -141,7 +141,7 @@ export const SPELLS = {
   shield: {
     name: 'Shield', icon: '🛡️', color: '#ffe066', slot: 5,
     cost: 12, upCost: [6, 7, 8, 9, 10, 11], maxLevel: 7,
-    desc: 'Reflects projectiles that enter the shield around you.',
+    desc: 'Autocast: goes up by itself when a projectile is about to hit you, reflecting projectiles that enter it.',
     cd: lin(25, 17), duration: lin(2.8, 3.8), aoe: lin(200 * UNIT, 260 * UNIT),
   },
   rush: {

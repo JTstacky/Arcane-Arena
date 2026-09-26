@@ -5,7 +5,8 @@ import { SPELLS, SLOT_KEYS, stat } from '../shared/warlockData.js';
 import { meta } from '../meta.js';
 import { CAM_DISTANCE } from '../engine/client/render/world.js';
 
-const SELF_CAST = new Set(['shield', 'windwalk', 'rush', 'scourge']);
+const SELF_CAST = new Set(['windwalk', 'rush', 'scourge']);
+const AUTOCAST = new Set(['shield']); // goes up by itself; its button only shows the cooldown
 
 startApp({
   ...meta,
@@ -25,8 +26,7 @@ startApp({
   touchHelp: [
     '<b>Joystick</b> (left) walks your warlock',
     '<b>Tap</b> anywhere to throw a fireball there (a tap near a rival aims at them)',
-    '<b>Spell buttons</b> (right) ready that spell for your next tap, then it’s back to fireball',
-    '<b>Pinch</b> to zoom · <b>two-finger drag</b> to look around · <b>⌖</b> to follow your warlock again',
+    '<b>Spell buttons</b> (right) ready that spell for your next tap, then it’s back to fireball · <b>Shield</b> goes up by itself',
     '<b>Tap the top bar</b> for the scoreboard · <b>long-press</b> a shop card to sell',
   ],
   quickCast: true,
@@ -38,7 +38,7 @@ startApp({
     action(i, snap, myId) {
       const me = snap.players?.[myId];
       const spell = me?.sl[i];
-      if (!spell || snap.phase !== 'play') return null;
+      if (!spell || snap.phase !== 'play' || AUTOCAST.has(spell)) return null;
       if ((snap.me?.cd?.[spell] || 0) > 0) return { error: true };
       if (SELF_CAST.has(spell)) return { self: spell };
       const d = SPELLS[spell];
