@@ -14,6 +14,20 @@ const SPELL_STATS = [
   ['duration', 'Duration', 's'], ['bounces', 'Bounces'], ['life', 'Lifetime', 's'],
 ];
 
+// A spell's stats as short chips for its shop card; when it is owned and can
+// be upgraded, each shows what the next level changes ("7 → 8").
+function spellStats(id, level) {
+  const d = SPELLS[id];
+  const lv = Math.max(1, level);
+  const short = { Damage: 'Dmg', Cooldown: 'CD', Duration: 'Lasts', Lifetime: 'Lasts' };
+  const f = (v) => (Math.round(v * 10) / 10).toString();
+  return SPELL_STATS.filter(([k]) => d[k] != null).map(([k, label, unit = '']) => {
+    const cur = stat(d, k, lv);
+    const next = level > 0 && level < d.maxLevel ? stat(d, k, lv + 1) : null;
+    return `<span class="st">${short[label] || label} <b>${f(cur)}${unit}</b>${next != null && next !== cur ? `<i>→${f(next)}${unit}</i>` : ''}</span>`;
+  }).join('');
+}
+
 export function spellTooltip(id, level) {
   const d = SPELLS[id];
   const lv = Math.max(1, level);
@@ -112,10 +126,12 @@ export class ArcaneHud extends HudBase {
     const shop = $('shop');
     shop.hidden = s.phase !== 'shop' || !me;
     if (shop.hidden) return;
-    const card = (id, d, lvl, cost, can, note = '') => `<button class="shopcard ${lvl ? 'owned' : ''} ${can ? '' : 'disabled'}" data-buy="${id}" data-tip="${SPELLS[id] ? 'spell' : 'item'}:${id}:${lvl}">
+    // Every card spells out what it does, so nothing needs a hover or a hold.
+    const card = (id, d, lvl, cost, can, note = '') => `<button class="shopcard ${lvl ? 'owned' : ''} ${can ? '' : 'disabled'}" data-buy="${id}">
         <span class="icon">${ico(id, d.icon)}</span><span class="nm">${d.name}</span>
         <span class="pips">${lvl ? '●'.repeat(lvl) + '○'.repeat(d.maxLevel - lvl) : note}</span>
-        <span class="cost">${lvl >= d.maxLevel ? 'MAX' : `${lvl ? '▲' : ''} 🪙${cost}`}</span></button>`;
+        <span class="cost">${lvl >= d.maxLevel ? 'MAX' : `${lvl ? '▲' : ''} 🪙${cost}`}</span>
+        <span class="desc">${d.desc}</span>${SPELLS[id] ? `<span class="stats">${spellStats(id, lvl)}</span>` : ''}</button>`;
     const spellCard = (id) => {
       const d = SPELLS[id];
       const lvl = me.sp[id] || 0;
