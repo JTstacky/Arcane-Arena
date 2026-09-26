@@ -70,8 +70,9 @@ export const SPELLS = {
   scourge: {
     name: 'Scourge', icon: '💥', color: '#c050ff', slot: 7,
     cost: 7, upCost: [7, 7], maxLevel: 3,
-    desc: 'Blast everything around you — but it costs you the same amount of health.',
+    desc: 'After a 1 second wind-up, blast everything around you — but it costs you the same amount of health.',
     cd: 3, dmg: [10, 12, 14], aoe: 250 * UNIT,
+    castTime: 1, // seconds of wind-up before the blast; a new order cancels it
   },
   // ---- Column 1: projectiles
   boomerang: {

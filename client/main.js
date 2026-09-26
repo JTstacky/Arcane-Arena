@@ -40,7 +40,7 @@ startApp({
       const spell = me?.sl[i];
       if (!spell || snap.phase !== 'play' || AUTOCAST.has(spell)) return null;
       if ((snap.me?.cd?.[spell] || 0) > 0) return { error: true };
-      if (SELF_CAST.has(spell)) return { self: spell };
+      if (SELF_CAST.has(spell)) return { self: spell, hold: SPELLS[spell].castTime || 0 };
       const d = SPELLS[spell];
       return { target: spell, name: d.name, range: d.range != null ? stat(d, 'range', me.sp[spell]) : null, aoe: d.aoe != null ? stat(d, 'aoe', me.sp[spell]) : null };
     },

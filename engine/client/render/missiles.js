@@ -6,7 +6,6 @@
 
 import * as THREE from 'three';
 import { artTexture, Ribbon } from './effects.js';
-import { LOW } from '../device.js';
 
 const HEIGHT = 1.1; // flying height of missiles, in metres
 
@@ -61,10 +60,11 @@ export class Missile {
       core.renderOrder = 11;
       this.obj.add(core);
     }
-    if (this.def.light && !LOW) {
-      const [c, i, d] = this.def.light;
-      this.light = new THREE.PointLight(c, i, d, 2);
-      this.obj.add(this.light);
+    if (this.def.light) {
+      // A light from the shared pool (null when all are in use).
+      const [c, , d] = this.def.light;
+      this.light = fx.borrowLight(c, d);
+      this.light?.position.set(0, -100, 0);
     }
     this.ribbon = this.def.ribbon ? new Ribbon(fx, this.def.ribbon) : null;
     this.core = this.def.core ? new Ribbon(fx, this.def.core) : null; // a bright inner streak
@@ -98,7 +98,10 @@ export class Missile {
       s.scale.setScalar(s.userData.size * pulse);
     }
     if (this.spin) this.spin.rotation.z += dt * 22;
-    if (this.light) this.light.intensity = this.def.light[1] * (0.85 + Math.random() * 0.3);
+    if (this.light) {
+      this.light.position.set(x, HEIGHT, z);
+      this.light.intensity = this.def.light[1] * (0.85 + Math.random() * 0.3);
+    }
     this.ribbon?.push(x, HEIGHT, z);
     this.core?.push(x, HEIGHT, z);
 
@@ -157,6 +160,8 @@ export class Missile {
 
   // The missile is gone: its streak fades out quickly behind it.
   release() {
+    this.fx.returnLight(this.light);
+    this.light = null;
     this.ribbon?.release(0.12);
     this.core?.release(0.08);
   }

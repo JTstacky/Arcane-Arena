@@ -4,7 +4,7 @@
 
 import { TICK_RATE, SNAPSHOT_EVERY, MAX_PLAYERS, PLAYER_COLORS } from '../shared/constants.js';
 
-const BOT_NAMES = ['Arthas', 'Jaina', 'Thrall', 'Illidan', 'Tyrande', 'Rexxar', 'Kael', 'Sylvanas', 'Grom', 'Muradin', 'Medivh', 'Cairne'];
+const BOT_NAMES = ['Arthus', 'Jaena', 'Thrahl', 'Illidun', 'Tyrandie', 'Rexxor', 'Kaelus', 'Sylvanis', 'Grohm', 'Muradyn', 'Medivv', 'Cairn'];
 const GAME_OVER_LINGER = 25; // seconds before returning to the lobby automatically
 
 let nextPlayerId = 1;

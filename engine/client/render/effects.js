@@ -40,6 +40,60 @@ function softDot(g, s) {
 // Loads art/<name>.webp into a texture that shows `fallback` until then.
 // `raw` textures skip colour management, for custom shaders that output
 // colours as they are (three's own materials want sRGB-tagged textures).
+// A tiling value-noise texture, built once, that shaders sample instead of
+// computing noise per pixel (the same look for a fraction of the GPU work).
+// It spans 8 noise cells. r: 3 octaves (weights .6/.3/.1, as the floor's
+// fbm), g: 1 octave, b: 5 octaves (halving weights, as the lava's fbm).
+// In GLSL, noise(p) ~ texture2D(noiseTex, p / 8.0).
+let noiseTexCache = null;
+export function noiseTex() {
+  if (noiseTexCache) return noiseTexCache;
+  const N = 256;
+  const lattice = (cells, seed) => {
+    const g = new Float32Array(cells * cells);
+    let h = seed;
+    for (let i = 0; i < g.length; i++) {
+      h = (h * 1664525 + 1013904223) >>> 0;
+      g[i] = h / 4294967296;
+    }
+    return (x, y) => {
+      // x, y in cells; wraps, so the texture tiles.
+      const xi = Math.floor(x);
+      const yi = Math.floor(y);
+      let fx = x - xi;
+      let fy = y - yi;
+      fx = fx * fx * (3 - 2 * fx);
+      fy = fy * fy * (3 - 2 * fy);
+      const at = (a, b) => g[(((b % cells) + cells) % cells) * cells + (((a % cells) + cells) % cells)];
+      const top = at(xi, yi) + (at(xi + 1, yi) - at(xi, yi)) * fx;
+      const bot = at(xi, yi + 1) + (at(xi + 1, yi + 1) - at(xi, yi + 1)) * fx;
+      return top + (bot - top) * fy;
+    };
+  };
+  const oct = [8, 16, 32, 64, 128].map((c, i) => [c, lattice(c, 97 + i * 7919)]);
+  const data = new Uint8Array(N * N * 4);
+  for (let y = 0; y < N; y++) {
+    for (let x = 0; x < N; x++) {
+      const v = oct.map(([c, f]) => f((x / N) * c, (y / N) * c));
+      const r = v[0] * 0.6 + v[1] * 0.3 + v[2] * 0.1;
+      const b = (v[0] * 0.5 + v[1] * 0.25 + v[2] * 0.125 + v[3] * 0.0625 + v[4] * 0.03125) / 0.96875;
+      const o = (y * N + x) * 4;
+      data[o] = r * 255;
+      data[o + 1] = v[0] * 255;
+      data[o + 2] = b * 255;
+      data[o + 3] = 255;
+    }
+  }
+  const t = new THREE.DataTexture(data, N, N, THREE.RGBAFormat);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.magFilter = THREE.LinearFilter;
+  t.minFilter = THREE.LinearMipmapLinearFilter;
+  t.generateMipmaps = true;
+  t.needsUpdate = true;
+  noiseTexCache = t;
+  return t;
+}
+
 export function artTexture(name, fallback = softDot, { repeat = false, raw = false } = {}) {
   const key = `${name}|${raw}`;
   if (texCache.has(key)) return texCache.get(key);
@@ -137,7 +191,7 @@ class Particles {
   // particle's life. `lumAlpha` draws a black-background sprite with normal
   // blending, taking alpha from brightness (for smoke).
   constructor(scene, { map, grid = [1, 1], additive = true, lumAlpha = false, max = 3000, order = 10 }) {
-    this.max = max = LOW ? Math.ceil(max * 0.35) : max;
+    this.max = max;
     this.frames = grid[0] * grid[1];
     this.pos = new Float32Array(max * 3);
     this.col = new Float32Array(max * 3);
@@ -155,6 +209,7 @@ class Particles {
     this.spin = new Float32Array(max);
     this.a0 = new Float32Array(max);
     this.next = 0;
+    this.tail = 0; // oldest slot that may still be alive: live ones sit in [tail, next)
     this.live = 0;
     const geo = new THREE.BufferGeometry();
     const attr = (a, n) => new THREE.BufferAttribute(a, n).setUsage(THREE.DynamicDrawUsage);
@@ -165,6 +220,7 @@ class Particles {
     geo.setAttribute('frame', attr(this.frame, 1));
     geo.setAttribute('rot', attr(this.rot, 1));
     geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e5);
+    this.attrs = ['position', 'color', 'size', 'alpha', 'frame', 'rot'].map((n) => geo.attributes[n]);
     this.material = new THREE.ShaderMaterial({
       vertexShader: vert,
       fragmentShader: frag,
@@ -209,11 +265,19 @@ class Particles {
     this.live = Math.max(this.live, 1);
   }
 
+  // Particles are spawned round a ring buffer, so the live ones sit in the
+  // window from the oldest survivor to the next free slot. Only that window
+  // is simulated, uploaded and drawn, not the whole pool.
   update(dt) {
     if (!this.live) return;
+    const M = this.max;
+    while (this.tail !== this.next && this.life[this.tail] <= 0) this.tail = (this.tail + 1) % M;
+    const start = this.tail;
+    const n = (this.next - start + M) % M || (this.life[start] > 0 ? M : 0);
     let live = 0;
     const F = this.frames;
-    for (let i = 0; i < this.max; i++) {
+    for (let j = 0; j < n; j++) {
+      const i = (start + j) % M;
       if (this.life[i] <= 0) {
         if (this.alpha[i] !== 0) this.alpha[i] = 0;
         continue;
@@ -222,12 +286,13 @@ class Particles {
       this.life[i] -= dt;
       const k = Math.max(0, this.life[i] / this.maxLife[i]); // 1 at birth, 0 at death
       const dr = Math.max(0, 1 - this.drag[i] * dt);
-      this.vel[i * 3] *= dr;
-      this.vel[i * 3 + 2] *= dr;
-      this.vel[i * 3 + 1] = this.vel[i * 3 + 1] * dr - this.grav[i] * dt;
-      this.pos[i * 3] += this.vel[i * 3] * dt;
-      this.pos[i * 3 + 1] += this.vel[i * 3 + 1] * dt;
-      this.pos[i * 3 + 2] += this.vel[i * 3 + 2] * dt;
+      const i3 = i * 3;
+      this.vel[i3] *= dr;
+      this.vel[i3 + 2] *= dr;
+      this.vel[i3 + 1] = this.vel[i3 + 1] * dr - this.grav[i] * dt;
+      this.pos[i3] += this.vel[i3] * dt;
+      this.pos[i3 + 1] += this.vel[i3 + 1] * dt;
+      this.pos[i3 + 2] += this.vel[i3 + 2] * dt;
       this.rot[i] += this.spin[i] * dt;
       if (F > 1) {
         // The flipbook carries its own fade, so only the last bit fades out.
@@ -239,13 +304,24 @@ class Particles {
       this.size[i] = this.size0[i] * (this.endScale[i] + (1 - this.endScale[i]) * k);
     }
     this.live = live;
-    for (const a of ['position', 'color', 'size', 'alpha', 'frame', 'rot']) this.geo.attributes[a].needsUpdate = true;
+    // Upload and draw just the window (the whole pool when it wraps round).
+    const wraps = start + n > M;
+    const from = wraps ? 0 : start;
+    const count = wraps ? M : n;
+    this.geo.setDrawRange(from, count);
+    for (const a of this.attrs) {
+      a.clearUpdateRanges();
+      a.addUpdateRange(from * a.itemSize, count * a.itemSize);
+      a.needsUpdate = true;
+    }
   }
 
   clear() {
     this.life.fill(0);
     this.alpha.fill(0);
-    this.geo.attributes.alpha.needsUpdate = true;
+    this.tail = this.next;
+    this.live = 0;
+    this.geo.setDrawRange(0, 0);
   }
 }
 
@@ -356,6 +432,17 @@ export class Effects {
     this.scene = scene;
     this.overlay = overlay;
     this.camera = camera;
+    // A fixed pool of point lights for missiles and flashes. Adding or
+    // removing a light makes three.js recompile every lit shader (a hitch
+    // mid-fight), so the lights always exist and are lent out; a free one
+    // is simply off.
+    this.lights = [];
+    for (let i = 0; i < (LOW ? 2 : 4); i++) {
+      const l = new THREE.PointLight('#ffffff', 0, 1, 2);
+      l.userData.free = true;
+      scene.add(l);
+      this.lights.push(l);
+    }
     const raw = { raw: true };
     // Soft glows: the general-purpose additive system.
     const glow = canvasTex(128, softDot);
@@ -465,12 +552,28 @@ export class Effects {
     this.transients.push({ obj: m, t: 0, dur, update: (k) => { m.scale.setScalar(0.1 + radius * Math.sqrt(k)); m.material.opacity = 1 - k; } });
   }
 
+  // Borrows a pooled light, or returns null when all are in use.
+  borrowLight(color, distance) {
+    const l = this.lights.find((q) => q.userData.free);
+    if (!l) return null;
+    l.userData.free = false;
+    l.color.set(color);
+    l.distance = distance;
+    return l;
+  }
+
+  returnLight(l) {
+    if (!l) return;
+    l.intensity = 0;
+    l.userData.free = true;
+  }
+
   flash(x, z, radius, color, dur = 0.3) {
-    if (LOW) return; // each extra light recompiles shaders; too costly on phones
-    const light = new THREE.PointLight(color, 40, radius * 5, 2);
+    const light = this.borrowLight(color, radius * 5);
+    if (!light) return;
     light.position.set(x, 1.5, z);
-    this.scene.add(light);
-    this.transients.push({ obj: light, t: 0, dur, update: (k) => (light.intensity = 40 * (1 - k)) });
+    light.intensity = 40;
+    this.transients.push({ obj: null, t: 0, dur, update: (k) => (light.intensity = 40 * (1 - k)), dispose: () => this.returnLight(light) });
   }
 
   // A textured beam between two points that always faces the camera.
@@ -571,9 +674,11 @@ export class Effects {
       const k = Math.min(1, tr.t / tr.dur);
       tr.update(k);
       if (k >= 1) {
-        this.scene.remove(tr.obj);
+        if (tr.obj) {
+          this.scene.remove(tr.obj);
+          tr.obj.material?.dispose?.();
+        }
         tr.dispose?.();
-        tr.obj.material?.dispose?.();
         tr.done = true;
       }
     }
@@ -597,13 +702,14 @@ export class Effects {
 
   clear() {
     for (const tr of this.transients) {
-      this.scene.remove(tr.obj);
+      if (tr.obj) this.scene.remove(tr.obj);
       tr.dispose?.();
     }
     this.transients = [];
     for (const r of this.ribbons) r.dispose();
     this.ribbons.clear();
     for (const s of this.systems) s.clear();
+    for (const l of this.lights) this.returnLight(l);
     for (const t of this.texts) t.el.remove();
     this.texts = [];
   }

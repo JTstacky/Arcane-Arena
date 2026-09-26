@@ -102,7 +102,11 @@ export class Input {
     if (a.send) return this.send(a.send);
     if (a.self) {
       const unit = this.world.myView();
-      return this.castAt(a.self, unit ? { x: unit.x, y: unit.z } : { x: 0, y: 0 }, false);
+      this.castAt(a.self, unit ? { x: unit.x, y: unit.z } : { x: 0, y: 0 }, false);
+      // A spell with a wind-up (Scourge) is cancelled by a new order, so
+      // held right-click and the joystick wait for it.
+      if (a.hold) this.holdPause = performance.now() + 450 + a.hold * 1000;
+      return;
     }
     if (this.quickCast) {
       const p = this.ground();

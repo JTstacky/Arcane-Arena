@@ -58,13 +58,14 @@ input {
 input:focus { border-color: var(--gold); }
 
 /* ---------- screens */
-.screen { position: fixed; inset: 0; display: grid; place-items: center; padding: 16px; background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0) 30%, rgba(0, 0, 0, 0.65)); z-index: 5; }
+.screen { position: fixed; inset: 0; display: flex; flex-direction: column; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; padding: max(44px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) 16px max(16px, env(safe-area-inset-left)); background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0) 30%, rgba(0, 0, 0, 0.65)); z-index: 5; }
+.screen > .panel { margin: auto; flex-shrink: 0; } /* centred when it fits, scrollable when it doesn't */
 .title-panel { width: min(460px, 100%); text-align: center; }
 .logo { font-size: clamp(34px, 7vw, 54px); margin: 0; letter-spacing: 1px; background: linear-gradient(180deg, #ffe7a0, #d08a20 60%, #8a4a10); -webkit-background-clip: text; background-clip: text; color: transparent; filter: drop-shadow(0 3px 0 #000); }
 .tag { color: var(--muted); margin: 6px 0 22px; }
 .field { display: grid; gap: 6px; text-align: left; color: var(--muted); font-size: 13px; margin-bottom: 14px; }
 .row { display: flex; gap: 10px; margin-top: 10px; }
-.row > * { flex: 1; }
+.row > * { flex: 1; min-width: 0; }
 .row.join input { text-transform: uppercase; letter-spacing: 6px; text-align: center; font-weight: 700; font-size: 18px; }
 .modes { display: grid; gap: 8px; margin-top: 22px; text-align: left; }
 .mode-pill { background: rgba(0, 0, 0, 0.35); border: 1px solid rgba(255, 220, 150, 0.12); border-radius: 8px; padding: 9px 12px; color: var(--muted); }
@@ -73,12 +74,12 @@ input:focus { border-color: var(--gold); }
 .kicker { text-transform: uppercase; letter-spacing: 2px; font-size: 11px; color: var(--gold); }
 
 /* ---------- lobby */
-.lobby-panel { width: min(860px, 100%); max-height: calc(100vh - 32px); overflow: auto; }
+.lobby-panel { width: min(860px, 100%); }
 .lobby-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; border-bottom: 1px solid rgba(255, 220, 150, 0.12); padding-bottom: 16px; margin-bottom: 16px; }
 .lobby-head > div { flex: 1; }
 .roomcode { font-size: 40px; letter-spacing: 8px; color: var(--gold); }
 .lobby-body { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
-@media (max-width: 700px) { .lobby-body { grid-template-columns: 1fr; } }
+@media (max-width: 560px) { .lobby-body { grid-template-columns: 1fr; } }
 .lobby-body h3 { margin: 0 0 10px; font-size: 16px; color: var(--gold); }
 #players { list-style: none; margin: 0 0 10px; padding: 0; display: grid; gap: 6px; }
 #players li { display: flex; align-items: center; gap: 10px; background: rgba(0, 0, 0, 0.35); border-radius: 7px; padding: 7px 10px; border-left: 4px solid var(--c); }
@@ -329,11 +330,30 @@ body.touch #tooltip { max-width: 70vw; }
 
 /* Landscape only. */
 @media (orientation: portrait) {
-  body.touch #rotate {
+  body.touch:not(.inlobby) #rotate {
     display: flex; position: fixed; inset: 0; z-index: 100; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
     background: rgba(12, 9, 6, 0.96); color: var(--gold); text-align: center; padding: 24px;
   }
-  body.touch #rotate div { font-size: 64px; animation: spin 2.4s ease-in-out infinite; }
+  body.touch:not(.inlobby) #rotate div { font-size: 64px; animation: spin 2.4s ease-in-out infinite; }
 }
 @keyframes spin { 0%, 30% { transform: rotate(0); } 60%, 100% { transform: rotate(90deg); } }
 body.touch.shopping #unitinfo, body.touch.shopping #chat, body.touch.shopping #messages { display: none; }
+
+/* Short screens (phones in landscape): a compact start menu and lobby. */
+@media (max-height: 520px) {
+  .screen { padding-top: 12px; }
+  .screen .panel { padding: 14px 18px; }
+  .wip { margin-bottom: 4px; }
+  .logo { font-size: 30px; }
+  .tag { margin: 2px 0 10px; font-size: 12.5px; }
+  .field { margin-bottom: 0; }
+  .row { margin-top: 8px; }
+  .btn.big { padding: 9px 18px; font-size: 15px; }
+  .modes { display: none; }
+  .fine { margin-top: 8px; }
+  .title-panel { width: min(560px, 100%); }
+  #homelink { display: none; } /* the panel links to all games too */
+  body.inlobby #chat { display: none; }
+  .lobby-head { gap: 8px; }
+  .roomcode { font-size: 30px; }
+}

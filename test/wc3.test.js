@@ -142,3 +142,25 @@ test('shield is autocast: it goes up by itself before a fireball hits, and canno
   assert.equal(b.unit.hp, hp, 'the fireball was reflected');
   assert.ok(a.unit.hp < a.unit.maxHp, 'back at the caster');
 });
+
+test('scourge winds up for 1 s before the blast, and a move order cancels it', () => {
+  const { g, a, b } = duel();
+  b.unit.x = 2; // inside the blast
+  const hp = b.unit.hp;
+  g.command(1, { c: 'cast', spell: 'scourge', x: 0, y: 0 });
+  let steps = 0;
+  while (b.unit.hp === hp && steps < 60) {
+    g.tick(STEP);
+    steps++;
+  }
+  assert.ok(Math.abs(steps * STEP - 1) < 0.05, `blast after ${(steps * STEP).toFixed(2)} s`);
+
+  const d = duel();
+  d.b.unit.x = 2;
+  const hp2 = d.b.unit.hp;
+  d.g.command(1, { c: 'cast', spell: 'scourge', x: 0, y: 0 });
+  for (let i = 0; i < 10; i++) d.g.tick(STEP);
+  d.g.command(1, { c: 'move', x: -5, y: 0 });
+  for (let i = 0; i < 40; i++) d.g.tick(STEP);
+  assert.equal(d.b.unit.hp, hp2, 'cancelled');
+});

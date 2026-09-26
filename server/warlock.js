@@ -334,6 +334,14 @@ export class WarlockGame {
   stepCast(s, dt) {
     const u = s.unit;
     const c = u.casting;
+    if (c.charge > 0) {
+      c.charge -= dt;
+      if (c.charge <= 1e-6) {
+        c.charge = 0;
+        this.beginCast(s);
+      }
+      return;
+    }
     if (c.lock > 0) {
       c.lock -= dt;
       if (c.lock <= 1e-6) {
@@ -358,6 +366,15 @@ export class WarlockGame {
     if ((s.cds[c.id] || 0) > 0) {
       u.casting = null;
       return this.notReady(s);
+    }
+    // Spells with a cast time (Scourge) wind up first: the caster stands
+    // still, and an order given now cancels the spell, as in WC3.
+    const castTime = SPELLS[c.id].castTime;
+    if (castTime && c.charge == null) {
+      c.charge = castTime;
+      u.target = null;
+      this.ev({ k: 'charge', s: c.id, u: u.id, t: castTime });
+      return;
     }
     c.lock = this.room.tuning?.castPoint ?? WARLOCK.castPoint;
     this.execCast(s, c.id, c.tx, c.ty);

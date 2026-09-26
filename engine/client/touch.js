@@ -105,7 +105,9 @@ export class Touch {
     if (this.stick) return;
     const r = document.getElementById('joy-base').getBoundingClientRect();
     this.stick = { id: e.pointerId, cx: r.left + r.width / 2, cy: r.top + r.height / 2, dx: 0, dy: 0, max: r.width / 2 };
-    e.currentTarget.setPointerCapture?.(e.pointerId);
+    try {
+      e.currentTarget.setPointerCapture?.(e.pointerId); // keep the stick even if the finger slides off it
+    } catch {}
     this.stickMove(e);
   }
 

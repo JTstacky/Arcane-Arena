@@ -13,7 +13,7 @@
 import * as THREE from 'three';
 import { LOW } from '../device.js';
 import * as M from './models.js';
-import { Effects, artTexture } from './effects.js';
+import { Effects, artTexture, noiseTex } from './effects.js';
 import { Missile } from './missiles.js';
 import { play } from '../audio.js';
 import { TICK_RATE } from '../../shared/constants.js';
@@ -122,7 +122,7 @@ const THEMES = {
 // is 0 and the procedural version is drawn.
 function liquidMaterial(kind) {
   const map = kind === 'lava' ? artTexture('tex_lava', (g, s) => { g.fillStyle = '#000'; g.fillRect(0, 0, s, s); }, { repeat: true, raw: true }) : null;
-  const uniforms = { time: { value: 0 }, map: { value: map }, hasMap: { value: 0 } };
+  const uniforms = { time: { value: 0 }, map: { value: map }, hasMap: { value: 0 }, noiseT: { value: noiseTex() } };
   if (map) {
     const check = () => (map.image?.naturalWidth ? (uniforms.hasMap.value = 1) : setTimeout(check, 200));
     check();
@@ -134,11 +134,9 @@ function liquidMaterial(kind) {
       void main() { vUv = uv; vec4 w = modelMatrix * vec4(position, 1.0); vWorld = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }
     `,
     fragmentShader: /* glsl */ `
-      uniform float time; uniform sampler2D map; uniform float hasMap; varying vec3 vWorld;
-      float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-      float noise(vec2 p) { vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
-        return mix(mix(hash(i), hash(i+vec2(1,0)), f.x), mix(hash(i+vec2(0,1)), hash(i+vec2(1,1)), f.x), f.y); }
-      float fbm(vec2 p) { float v = 0.0, a = 0.5; for (int i = 0; i < 5; i++) { v += a * noise(p); p *= 2.03; a *= 0.5; } return v; }
+      uniform float time; uniform sampler2D map; uniform float hasMap; uniform sampler2D noiseT; varying vec3 vWorld;
+      // Noise comes from a precomputed tiling texture (see noiseTex).
+      float fbm(vec2 p) { return texture2D(noiseT, p * 0.125).b * 0.97; }
       void main() {
         vec2 p = vWorld.xz * 0.12;
         ${kind === 'lava'
@@ -174,9 +172,15 @@ export class World {
     this.canvas = canvas;
     this.overlay = overlay;
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(LOW ? 1 : Math.min(window.devicePixelRatio, 2));
+    // Resolution adapts to the frame rate (see adaptResolution): it starts
+    // at the device's sharpness, capped, and only drops if frames run slow.
+    this.maxRatio = Math.min(window.devicePixelRatio || 1, LOW ? 1.5 : 2);
+    this.renderer.setPixelRatio(this.maxRatio);
+    this.frameMs = 16.7;
+    this.adaptT = 0;
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.type = LOW ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.autoUpdate = !LOW;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.05;
     this.scene = new THREE.Scene();
@@ -552,7 +556,27 @@ export class World {
 
   // -------------------------------------------------------------- frame
 
+  // Dynamic resolution: every 2 s, if frames average slower than ~50 fps
+  // the pixel ratio steps down (never below 0.75); with headroom it climbs
+  // back to the device's full sharpness. Only slow devices ever lose detail.
+  adaptResolution(dt) {
+    if (dt <= 0 || dt > 0.25) return; // tab switches and hitches aren't the steady rate
+    this.frameMs += (dt * 1000 - this.frameMs) * 0.05;
+    this.adaptT += dt;
+    if (this.adaptT < 2) return;
+    this.adaptT = 0;
+    const cur = this.renderer.getPixelRatio();
+    let next = cur;
+    if (this.frameMs > 20) next = Math.max(0.75, cur - 0.25);
+    else if (this.frameMs < 14) next = Math.min(this.maxRatio, cur + 0.25);
+    if (next !== cur) {
+      this.renderer.setPixelRatio(next);
+      this.resize();
+    }
+  }
+
   render(dt) {
+    this.adaptResolution(dt);
     this.time += dt;
     for (const m of this.liquids) m.uniforms.time.value = this.time;
     const rt = this.renderTime();
@@ -625,6 +649,12 @@ export class World {
     if (this.lab) this.updateLab(dt);
     this.updateCamera(dt);
     this.fx.update(dt, this.width, this.height);
+    if (LOW) {
+      // Phones redraw the shadow map every other frame (at 60 fps the
+      // shadows still move at 30; the difference is hard to see).
+      this.shadowFlip = !this.shadowFlip;
+      this.renderer.shadowMap.needsUpdate = this.shadowFlip;
+    }
     this.renderer.render(this.scene, this.camera);
     this.positionBars();
   }
@@ -679,48 +709,64 @@ export class World {
     }
   }
 
-  // The lava arena's floor: marble slabs on a flat disc whose edge is drawn
-  // in the shader, not as a hard circle. Toward the edge the slabs darken
-  // into scorched crust, the border wobbles with noise (about ±0.5 m around
-  // the true lava line), glows and fades into the lava.
+  // The lava arena's floor: marble slabs whose edge is drawn in the shader,
+  // not as a hard circle. Toward the edge the slabs darken into scorched
+  // crust, the border wobbles with noise (about ±1 m around the true lava
+  // line), glows and fades into the lava.
+  // For speed it is two meshes: an opaque inner disc, drawn before the lava
+  // so the lava under it is never shaded, and a ring that does the noisy
+  // edge. The texture is mapped from world position, so both line up.
   buildLavaFloor(r) {
     const map = artTexture('tex_marble', (g, s) => { g.fillStyle = '#8a8580'; g.fillRect(0, 0, s, s); }, { repeat: true });
-    const mat = new THREE.MeshStandardMaterial({ map, roughness: 0.85, transparent: true });
     const uR = { value: r };
-    mat.onBeforeCompile = (sh) => {
-      sh.uniforms.uR = uR;
-      sh.vertexShader = sh.vertexShader
-        .replace('#include <common>', '#include <common>\nvarying vec2 vW;')
-        .replace('#include <worldpos_vertex>', '#include <worldpos_vertex>\nvW = (modelMatrix * vec4(transformed, 1.0)).xz;');
-      sh.fragmentShader = sh.fragmentShader
-        .replace('#include <common>', `#include <common>
-varying vec2 vW;
-uniform float uR;
-float hsh(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-float vnoise(vec2 p) {
-  vec2 i = floor(p), f = fract(p);
-  f = f * f * (3.0 - 2.0 * f);
-  return mix(mix(hsh(i), hsh(i + vec2(1, 0)), f.x), mix(hsh(i + vec2(0, 1)), hsh(i + vec2(1, 1)), f.x), f.y);
-}
-float fbm(vec2 p) { return vnoise(p) * 0.6 + vnoise(p * 2.3 + 7.1) * 0.3 + vnoise(p * 5.1 + 3.7) * 0.1; }`)
-        .replace('#include <map_fragment>', `#include <map_fragment>
+    const material = (edge) => {
+      const mat = new THREE.MeshStandardMaterial({ map, roughness: 0.85, transparent: edge });
+      // Both variants share one onBeforeCompile source, so name them apart
+      // or three.js would reuse one compiled program for both.
+      mat.customProgramCacheKey = () => (edge ? 'lava-floor-edge' : 'lava-floor-inner');
+      mat.onBeforeCompile = (sh) => {
+        sh.uniforms.uR = uR;
+        sh.uniforms.noiseT = { value: noiseTex() };
+        sh.vertexShader = sh.vertexShader
+          .replace('#include <common>', '#include <common>\nvarying vec2 vW;')
+          .replace('#include <worldpos_vertex>', '#include <worldpos_vertex>\nvW = (modelMatrix * vec4(transformed, 1.0)).xz;');
+        // Slabs are 128 units (2.56 m); the texture holds 4 x 4 of them.
+        const sample = 'vec4 sampledDiffuseColor = texture2D(map, vW / 10.24);\ndiffuseColor *= sampledDiffuseColor;';
+        sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec2 vW;\nuniform float uR;');
+        if (!edge) {
+          sh.fragmentShader = sh.fragmentShader.replace('#include <map_fragment>', sample);
+          return;
+        }
+        sh.fragmentShader = sh.fragmentShader
+          .replace('uniform float uR;', `uniform float uR;
+uniform sampler2D noiseT; // precomputed tiling noise (see noiseTex)
+float vnoise(vec2 p) { return texture2D(noiseT, p * 0.125).g; }
+float fbm(vec2 p) { return texture2D(noiseT, p * 0.125).r; }`)
+          .replace('#include <map_fragment>', `${sample}
 float edgeN = fbm(vW * 0.3) - 0.5 + (vnoise(vW * 1.4) - 0.5) * 0.35;
 float inside = uR + edgeN * 1.6 - length(vW); // metres inside the ragged edge
 // Scorched crust creeps in patchily from the edge.
-float scorch = 1.0 - smoothstep(0.0, 3.6, inside + (fbm(vW * 0.9 + 11.0) - 0.5) * 2.6);
-scorch *= 0.75 + 0.35 * fbm(vW * 3.0);
-diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.09, 0.055, 0.04), clamp(scorch * 1.15, 0.0, 0.94));
+// Always darkest at the lip; noise only varies how far in the crust reaches.
+float reach = 2.0 + fbm(vW * 0.7 + 11.0) * 4.4; // 2 to 6.4 m
+float scorch = pow(1.0 - smoothstep(0.0, reach, inside), 0.8);
+scorch *= 0.8 + 0.4 * fbm(vW * 3.0);
+diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.08, 0.05, 0.035), clamp(scorch * 1.5, 0.0, 0.95));
 diffuseColor.a *= smoothstep(-0.1, 0.45, inside);`)
-        .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
-float heat = 1.0 - smoothstep(0.0, 1.1, inside + (fbm(vW * 2.2) - 0.5) * 0.8);
-totalEmissiveRadiance += vec3(1.0, 0.32, 0.05) * heat * heat * (0.6 + fbm(vW * 2.7) * 1.2);`);
+          .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+float heat = 1.0 - smoothstep(0.15, 0.95, inside + (vnoise(vW * 2.2) - 0.5) * 0.7);
+totalEmissiveRadiance += vec3(1.0, 0.22, 0.02) * heat * heat * heat * (0.8 + vnoise(vW * 2.7) * 1.4);`);
+      };
+      return mat;
     };
-    const floor = new THREE.Mesh(new THREE.CircleGeometry(1, 160).rotateX(-Math.PI / 2), mat);
-    floor.receiveShadow = true;
-    floor.renderOrder = 1;
-    floor.userData = { worldUV: true, flat: true, uR, margin: 1 };
-    this.mapGroup.add(floor);
-    this.floorMesh = floor;
+    const inner = new THREE.Mesh(new THREE.CircleGeometry(1, 96).rotateX(-Math.PI / 2), material(false));
+    inner.receiveShadow = true;
+    inner.renderOrder = -1; // before the lava: the lava under it fails the depth test
+    const ring = new THREE.Mesh(new THREE.BufferGeometry(), material(true));
+    ring.receiveShadow = true;
+    ring.renderOrder = 1;
+    this.mapGroup.add(inner, ring);
+    this.floorMesh = inner;
+    inner.userData = { flat: true, uR, ring };
     this.floorR = null;
     this.setFloorRadius(r);
   }
@@ -746,14 +792,13 @@ totalEmissiveRadiance += vec3(1.0, 0.32, 0.05) * heat * heat * (0.6 + fbm(vW * 2
     if (r === this.floorR) return;
     const ud = this.floorMesh.userData;
     if (ud.flat) {
-      // The mesh reaches past the edge so the ragged border fits on it; the
-      // texture stays fixed in the world: 4 × 4 slabs of 128 units (2.56 m).
-      const R = r + ud.margin;
-      this.floorMesh.scale.set(R, 1, R);
-      const L = 4 * 2.56;
-      const m = this.floorMesh.material.map;
-      m.repeat.set((2 * R) / L, (2 * R) / L);
-      m.offset.set(-R / L, -R / L);
+      // Past this far in, the scorch and the ragged edge never reach.
+      const EDGE = 7;
+      const ri = Math.max(0, r - EDGE);
+      this.floorMesh.visible = ri > 0.05;
+      this.floorMesh.scale.set(Math.max(0.01, ri + 0.02), 1, Math.max(0.01, ri + 0.02)); // a hair of overlap
+      ud.ring.geometry.dispose();
+      ud.ring.geometry = new THREE.RingGeometry(ri, r + 1.3, 128, 1).rotateX(-Math.PI / 2);
       ud.uR.value = r;
       this.floorR = r;
       return;
@@ -863,14 +908,14 @@ totalEmissiveRadiance += vec3(1.0, 0.32, 0.05) * heat * heat * (0.6 + fbm(vW * 2
           body.rotation.z = Math.min(Math.PI / 2, v.deadT * 4);
           o.position.y = -Math.min(1.5, Math.max(0, v.deadT - 0.8) * 0.8);
           v.sel.visible = false;
-          if (v.bar) v.bar.style.display = 'none';
         } else {
           v.deadT = 0;
           body.rotation.z = 0;
           v.sel.visible = true;
-          if (v.bar) v.bar.style.display = '';
         }
-        if (v.hpFill && b.mhp) {
+        if (v.hpFill && b.mhp && b.hp !== v.hpShown) {
+          // Only touch the DOM when the health changes.
+          v.hpShown = b.hp;
           const frac = Math.max(0, b.hp / b.mhp);
           v.hpFill.style.width = `${frac * 100}%`;
           v.hpFill.style.background = frac > 0.6 ? '#2fdc2f' : frac > 0.3 ? '#e8d020' : '#e82020';
@@ -977,18 +1022,26 @@ totalEmissiveRadiance += vec3(1.0, 0.32, 0.05) * heat * heat * (0.6 + fbm(vW * 2
     });
   }
 
+  // Name and health bars follow their units. DOM writes are skipped when
+  // nothing changed, and positions are whole pixels, so a still unit costs
+  // the browser nothing.
   positionBars() {
-    const v3 = new THREE.Vector3();
+    const v3 = this._barV || (this._barV = new THREE.Vector3());
     for (const v of this.views.values()) {
       if (!v.bar) continue;
-      if (!v.visibleBar || !v.obj.visible) {
-        v.bar.style.display = 'none';
-        continue;
+      const show = v.visibleBar && v.obj.visible;
+      if (show !== v.barShown) {
+        v.bar.style.display = show ? '' : 'none';
+        v.barShown = show;
       }
-      v.bar.style.display = '';
+      if (!show) continue;
       v3.set(v.obj.position.x, v.obj.position.y + 3.1, v.obj.position.z);
       v3.project(this.camera);
-      v.bar.style.transform = `translate(-50%, -100%) translate(${((v3.x + 1) / 2) * this.width}px, ${((1 - v3.y) / 2) * this.height}px)`;
+      const t = `translate(-50%, -100%) translate(${Math.round(((v3.x + 1) / 2) * this.width)}px, ${Math.round(((1 - v3.y) / 2) * this.height)}px)`;
+      if (t !== v.barT) {
+        v.bar.style.transform = t;
+        v.barT = t;
+      }
     }
   }
 
@@ -1133,6 +1186,24 @@ totalEmissiveRadiance += vec3(1.0, 0.32, 0.05) * heat * heat * (0.6 + fbm(vW * 2
         fx.bolt(e.x1, e.y1, e.x2, e.y2);
         fx.flash(e.x2, e.y2, 2, '#9fd4ff', 0.2);
         break;
+      case 'charge': {
+        // A wind-up (Scourge): energy spirals in toward the caster, faster
+        // and brighter as the blast nears.
+        const v = this.views.get(e.u);
+        if (!v) break;
+        const c = new THREE.Color(this.spellColors[e.s] || '#c050ff');
+        let acc = 0;
+        fx.transients.push({ obj: null, t: 0, dur: e.t, update: (k) => {
+          if (v.deadT > 0) return;
+          acc += 1 + k * 3;
+          for (; acc >= 1; acc--) {
+            const a = Math.random() * Math.PI * 2;
+            const r = 2.6 - k * 1.2;
+            fx.add.spawn(v.x + Math.cos(a) * r, 0.4 + Math.random() * 1.4, v.z + Math.sin(a) * r, -Math.cos(a) * r * 3 - Math.sin(a) * 2, 0, -Math.sin(a) * r * 3 + Math.cos(a) * 2, c, 0.5 + k * 0.4, 0.3, 0, 0);
+          }
+        } });
+        break;
+      }
       case 'tele':
         for (const [x, z] of [[e.x1, e.y1], [e.x2, e.y2]]) {
           // A blink: a flash of pale blue light and sparkles rising in a column.
