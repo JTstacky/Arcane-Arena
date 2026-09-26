@@ -56,6 +56,7 @@ shared/   warlockData.js: spell and item tables (used by server and client)
 engine/   shared engine (also used by Hammerguy's Party):
           sim, rooms, networking, renderer, input, HUD base
 docs/     research.md: findings from the original Warlock 1.02 map
+          wc3-observations.md: measured behaviour from real WC3, via wc3-instrumentation/
 ```
 
 **Networking.** The simulation runs at 30 Hz on the host, and snapshots go out at 15 Hz. Clients send only orders and interpolate between snapshots.
