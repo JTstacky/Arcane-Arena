@@ -85,7 +85,7 @@ vv += wb * dir(from source to victim)
 | Rush | 12 | — | 21 s (−1 per level) | absorbs 5 (+2 per level) |
 | Link | 11 | 0.2 (+0.1 per level) | 17 → 7 s | |
 | Gravity | 12 | 0.3 (+0.2 per level) | 21 → 19 s | force 13 (+1 per level) |
-| Scourge | — | 10 around you, including yourself | 3 s | |
+| Scourge | — | 10 around you, including yourself | 3 s | 1 s wind-up that cannot be stopped; no walking during it, knockback still applies (per Justin) |
 
 ## What to check in the real game (for playtesting)
 
