@@ -22,7 +22,15 @@ startApp({
     '<b>Enter</b> chat · <b>F8</b> Movement Lab overlay',
     'Host chat commands: <b>-turnrate 0.6</b> · <b>-propwindow 60</b> · <b>-castpoint 0.3</b> · <b>-tuning reset</b>',
   ],
+  touchHelp: [
+    '<b>Joystick</b> (left) walks your warlock',
+    '<b>Tap</b> anywhere to throw a fireball there (a tap near a rival aims at them)',
+    '<b>Spell buttons</b> (right) ready that spell for your next tap, then it’s back to fireball',
+    '<b>Pinch</b> to zoom · <b>two-finger drag</b> to look around · <b>⌖</b> to follow your warlock again',
+    '<b>Tap the top bar</b> for the scoreboard · <b>long-press</b> a shop card to sell',
+  ],
   quickCast: true,
+  touchDefaultSlot: 0, // on phones a tap casts fireball (Q) toward it
   Hud: ArcaneHud,
   spellColors: Object.fromEntries(Object.entries(SPELLS).map(([id, d]) => [id, d.color])),
   slots: {

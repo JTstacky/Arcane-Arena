@@ -7,6 +7,8 @@ import './style.css';
 import { Net } from './net.js';
 import { World, escapeHtml } from './render/world.js';
 import { Input } from './input.js';
+import { Touch } from './touch.js';
+import { TOUCH } from './device.js';
 import { play, unlockAudio, toggleMute, isMuted } from './audio.js';
 import { renderShell } from './shell.js';
 import { PLAYER_COLORS } from '../shared/constants.js';
@@ -28,6 +30,7 @@ export function startApp(cfg) {
 
   const world = new World($('view'), $('overlay'));
   world.spellColors = cfg.spellColors || {};
+  if (import.meta.env?.DEV) window.__world = world; // for inspecting the renderer from the console
   const net = new Net(onMessage, onStatus, { transport, p2p: cfg.p2p });
   const send = (m) => net.send(m);
   const isHost = () => state.lobby && state.lobby.host === state.myId;
@@ -45,6 +48,8 @@ export function startApp(cfg) {
     onError: showError,
   });
   input.quickCast = store('quick') === '1'; // WC3 1.26 has no quick-cast, so it is off by default
+  if (TOUCH) new Touch({ world, input, send, getMyId: () => state.myId, defaultSlot: cfg.touchDefaultSlot ?? null });
+  const follow = () => !!cfg.followCamera || TOUCH; // phones have no screen edges to scroll with
   world.onMessage = (e) => addChat(e.text, { color: e.c, system: !e.c });
   world.onError = showError;
 
@@ -212,12 +217,12 @@ export function startApp(cfg) {
         state.snap = null;
         hud.reset();
         showScreen('game');
-        world.follow = !!cfg.followCamera;
-        world.zoom = cfg.gameZoom ?? 30;
+        world.follow = follow();
+        world.zoom = TOUCH ? Math.min(cfg.gameZoom ?? 30, 28) : cfg.gameZoom ?? 30;
         break;
       case 'map':
         world.setMap(m.map);
-        world.follow = !!cfg.followCamera;
+        world.follow = follow();
         world.recentre = true;
         break;
       case 'snap':

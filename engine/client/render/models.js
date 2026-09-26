@@ -44,27 +44,88 @@ function darken(hex, k) {
   return c;
 }
 
-// A hooded warlock with a glowing staff.
+// A robed Blood Elf caster in the Warcraft III style: dark cloth, gold trim,
+// team colour on the cloak, hood and tabard (as WC3 team-colours only parts
+// of a model), and a staff crowned with a green crystal.
+function lathe(points, segs = 12) {
+  return new THREE.LatheGeometry(points.map(([r, y]) => new THREE.Vector2(r, y)), segs);
+}
+
 export function warlock(color) {
   const g = new THREE.Group();
   const body = new THREE.Group();
   g.add(body);
-  const robe = mesh(scaled(G.cone, 0.55, 1.25, 0.55), mat(darken(color, 0.55)), 0, 0.62, 0);
-  const trim = mesh(scaled(G.cyl, 0.56, 0.1, 0.56), mat(color), 0, 0.06, 0);
-  const chest = mesh(scaled(G.sphere, 0.32, 0.36, 0.34), mat(darken(color, 0.45)), 0, 1.05, 0);
-  const head = mesh(scaled(G.sphere, 0.2), mat('#c9a27e'), 0.05, 1.42, 0);
-  const hood = mesh(scaled(G.cone, 0.3, 0.75, 0.3), mat(color), -0.04, 1.72, 0);
-  hood.rotation.z = 0.25;
-  const eyeL = mesh(scaled(G.sphere, 0.04), glowMat('#ffcc55'), 0.22, 1.44, 0.07);
-  const eyeR = mesh(scaled(G.sphere, 0.04), glowMat('#ffcc55'), 0.22, 1.44, -0.07);
-  const shoulderL = mesh(scaled(G.sphere, 0.16), mat(color), 0, 1.2, 0.3);
-  const shoulderR = mesh(scaled(G.sphere, 0.16), mat(color), 0, 1.2, -0.3);
+  const cloth = mat('#2b2230');
+  const clothLight = mat('#43344a');
+  const team = mat(color);
+  const teamDark = mat(darken(color, 0.6));
+  const gold = mat('#d8aa3a', { metalness: 0.7, roughness: 0.35 });
+  const trimGold = mat('#b88a2a', { metalness: 0.6, roughness: 0.4 });
+
+  // Flared robe down to the ground, with a gold hem.
+  const robe = mesh(lathe([[0.001, 1.08], [0.3, 1.02], [0.36, 0.7], [0.46, 0.3], [0.56, 0.04], [0.001, 0.04]]), cloth);
+  const hem = mesh(lathe([[0.565, 0.1], [0.58, 0.02], [0.565, 0.0]], 14), trimGold);
+  // Team-coloured tabard down the front.
+  const tabard = mesh(scaled(G.box, 0.05, 0.78, 0.26), team, 0.42, 0.5, 0);
+  tabard.rotation.z = 0.2;
+  const tabardTrim = mesh(scaled(G.box, 0.04, 0.8, 0.32), trimGold, 0.41, 0.5, 0);
+  tabardTrim.rotation.z = 0.2;
+  // Chest and belt.
+  const chest = mesh(lathe([[0.001, 1.42], [0.2, 1.4], [0.3, 1.25], [0.28, 1.02], [0.001, 1.0]]), clothLight);
+  const belt = mesh(scaled(G.cyl, 0.31, 0.08, 0.31), gold, 0, 1.03, 0);
+  const buckle = mesh(scaled(G.box, 0.06, 0.1, 0.12), gold, 0.31, 1.03, 0);
+  // Cloak hanging from the shoulders at the back (a partial open cylinder).
+  // (Cylinder angle 0 faces +Z, so 1.5 pi is the back, -X.)
+  const cloakGeo = new THREE.CylinderGeometry(0.33, 0.6, 1.3, 10, 1, true, Math.PI * 1.1, Math.PI * 0.8);
+  const cloak = mesh(cloakGeo, new THREE.MeshStandardMaterial({ color, roughness: 0.8, flatShading: true, side: THREE.DoubleSide }), -0.05, 0.72, 0);
+  // Big pointed shoulder guards, as WC3 heroes wear them.
+  const pads = [];
+  for (const s of [1, -1]) {
+    const pad = mesh(scaled(G.sphere, 0.2, 0.13, 0.22), gold, 0, 1.36, 0.3 * s);
+    const spike = mesh(scaled(G.cone, 0.07, 0.3, 0.07), teamDark, 0, 1.5, 0.36 * s);
+    spike.rotation.x = -0.5 * s;
+    // Sleeve hanging from the shoulder.
+    const sleeve = mesh(scaled(G.cone, 0.14, 0.55, 0.14), cloth, 0.08, 1.12, 0.33 * s);
+    sleeve.rotation.x = Math.PI;
+    sleeve.rotation.z = -0.35;
+    const hand = mesh(scaled(G.sphere, 0.07), mat('#e7c6a2'), 0.2, 0.86, 0.36 * s);
+    pads.push(pad, spike, sleeve, hand);
+  }
+  // Head in a deep team-coloured hood; the face is in shadow but for the eyes.
+  const face = mesh(scaled(G.sphere, 0.16, 0.18, 0.16), mat('#16101a'), 0.06, 1.58, 0);
+  const hood = mesh(lathe([[0.001, 1.98], [0.1, 1.86], [0.22, 1.7], [0.24, 1.52], [0.2, 1.4], [0.001, 1.4]], 10), team);
+  hood.position.x = -0.04;
+  hood.rotation.z = 0.12;
+  const ears = [];
+  for (const s of [1, -1]) {
+    // Long Blood Elf ears poking through the hood.
+    const ear = mesh(scaled(G.cone, 0.035, 0.28, 0.02), mat('#e7c6a2'), 0.0, 1.62, 0.24 * s);
+    ear.rotation.x = -1.15 * s;
+    ears.push(ear);
+  }
+  const eyeL = mesh(scaled(G.sphere, 0.03), glowMat('#8dff6a'), 0.2, 1.6, 0.06);
+  const eyeR = mesh(scaled(G.sphere, 0.03), glowMat('#8dff6a'), 0.2, 1.6, -0.06);
+
+  // The staff: dark wood, a gold collar and three prongs cradling the crystal.
   const staff = new THREE.Group();
-  staff.position.set(0.2, 0.9, -0.42);
-  staff.add(mesh(scaled(G.cyl, 0.035, 1.8, 0.035), mat('#5a3a1e'), 0, 0.1, 0));
-  const orb = mesh(scaled(G.sphere, 0.13), glowMat(color), 0, 1.05, 0);
+  staff.position.set(0.22, 0.9, -0.4);
+  const wood = mat('#3a2616');
+  staff.add(mesh(scaled(G.cyl, 0.035, 2.0, 0.035), wood, 0, 0.1, 0));
+  staff.add(mesh(scaled(G.cyl, 0.06, 0.1, 0.06), gold, 0, 0.95, 0));
+  for (let i = 0; i < 3; i++) {
+    const a = (i / 3) * Math.PI * 2;
+    const prong = mesh(scaled(G.cone, 0.03, 0.34, 0.03), gold, Math.cos(a) * 0.09, 1.14, Math.sin(a) * 0.09);
+    prong.rotation.set(Math.sin(a) * 0.45, 0, -Math.cos(a) * 0.45);
+    staff.add(prong);
+  }
+  const orb = mesh(new THREE.OctahedronGeometry(0.12, 0), glowMat('#8dff6a'), 0, 1.15, 0);
+  orb.scale.y = 1.5;
   staff.add(orb);
-  body.add(robe, trim, chest, head, hood, eyeL, eyeR, shoulderL, shoulderR, staff);
+  const ferrule = mesh(scaled(G.cone, 0.04, 0.14, 0.04), gold, 0, -0.96, 0);
+  ferrule.rotation.x = Math.PI;
+  staff.add(ferrule);
+
+  body.add(robe, hem, tabard, tabardTrim, chest, belt, buckle, cloak, ...pads, face, hood, ...ears, eyeL, eyeR, staff);
   g.userData = { body, staff, orb, kind: 'hero' };
   return g;
 }

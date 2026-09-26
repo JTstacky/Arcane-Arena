@@ -64,6 +64,9 @@ export class Input {
   mouseDown(e) {
     unlockAudio();
     if (!this.active) return;
+    // Browsers follow a tap with emulated mouse events; the touch code has
+    // already handled it.
+    if (performance.now() - (this.lastTouch || 0) < 800) return;
     this.mouse.x = e.clientX;
     this.mouse.y = e.clientY;
     if (e.button === 2) {
@@ -90,6 +93,8 @@ export class Input {
     if (!snap || !this.active) return;
     const a = this.slots.action(i, snap, this.getMyId());
     if (!a) return;
+    // On touch, tapping the selected spell again cancels it.
+    if (this.touchMode && this.targeting && this.targeting === a.target) return this.cancelTarget();
     if (a.error) {
       play('error');
       return this.onError('Spell is not ready yet.');
@@ -106,17 +111,35 @@ export class Input {
     }
     this.targeting = a.target;
     document.body.classList.add('targeting');
+    document.body.dataset.armed = i; // highlights the button (touch)
     const hint = document.getElementById('targethint');
     hint.hidden = false;
-    hint.textContent = `${a.name}: left-click a target (right-click to cancel)`;
+    hint.textContent = this.touchMode ? `${a.name}: tap where to cast it (tap the button again to cancel)` : `${a.name}: left-click a target (right-click to cancel)`;
     this.range = a.range ?? null;
     this.aoe = a.aoe ?? 1.5;
+  }
+
+  // Casts the spell in slot `i` at point `p` straight away (the touch
+  // controls' default attack).
+  castSlotAt(i, p) {
+    unlockAudio();
+    const snap = this.getSnap();
+    if (!snap || !this.active) return;
+    const a = this.slots.action(i, snap, this.getMyId());
+    if (!a) return;
+    if (a.error) {
+      play('error');
+      return this.onError('Spell is not ready yet.');
+    }
+    if (a.send) return this.send(a.send);
+    if (a.target) this.castAt(a.target, p);
   }
 
   cancelTarget() {
     this.targeting = null;
     this.range = null;
     document.body.classList.remove('targeting');
+    delete document.body.dataset.armed;
     document.getElementById('targethint').hidden = true;
     this.world.showRange(null);
     this.world.showReticle(null);
@@ -181,7 +204,7 @@ export class Input {
     if (this.keysDown.has('ArrowRight')) px += 1;
     if (this.keysDown.has('ArrowUp')) pz -= 1;
     if (this.keysDown.has('ArrowDown')) pz += 1;
-    if (!w.follow && document.hasFocus()) {
+    if (!w.follow && !this.touchMode && document.hasFocus()) {
       const m = 6;
       if (this.mouse.x < m) px -= 1;
       if (this.mouse.x > innerWidth - m) px += 1;
@@ -192,7 +215,7 @@ export class Input {
     w.pan = px || pz ? { x: px, z: pz } : null;
     if (this.targeting) {
       w.showRange(this.range);
-      w.showReticle(this.ground(), this.aoe);
+      if (!this.touchMode) w.showReticle(this.ground(), this.aoe);
     }
   }
 }

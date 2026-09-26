@@ -11,12 +11,15 @@
 // centres it.
 
 import * as THREE from 'three';
+import { LOW } from '../device.js';
 import * as M from './models.js';
-import { Effects } from './effects.js';
+import { Effects, artTexture } from './effects.js';
+import { Missile } from './missiles.js';
 import { play } from '../audio.js';
 import { TICK_RATE } from '../../shared/constants.js';
 
 const INTERP_DELAY = 0.11; // seconds behind the newest snapshot
+const FIRE_COLORS = new Set(['#ff7a1a', '#ff4a1a', '#ffcf6a', '#ff8040']);
 const CAM_PITCH = (56 * Math.PI) / 180;
 const CAM_FOV = 2 * Math.atan(0.75 * (775 / 1650)) * (180 / Math.PI); // ≈ 38.8° vertical
 export const CAM_DISTANCE = 1650 / 50;
@@ -114,15 +117,24 @@ const THEMES = {
 };
 
 // Animated lava / water surface.
+// Painted lava (art/tex_lava) flows slowly in two layers at different scales,
+// warped by noise, and its glow pulses. Until the texture has loaded, `hasMap`
+// is 0 and the procedural version is drawn.
 function liquidMaterial(kind) {
+  const map = kind === 'lava' ? artTexture('tex_lava', (g, s) => { g.fillStyle = '#000'; g.fillRect(0, 0, s, s); }, { repeat: true, raw: true }) : null;
+  const uniforms = { time: { value: 0 }, map: { value: map }, hasMap: { value: 0 } };
+  if (map) {
+    const check = () => (map.image?.naturalWidth ? (uniforms.hasMap.value = 1) : setTimeout(check, 200));
+    check();
+  }
   return new THREE.ShaderMaterial({
-    uniforms: { time: { value: 0 } },
+    uniforms,
     vertexShader: /* glsl */ `
       varying vec2 vUv; varying vec3 vWorld;
       void main() { vUv = uv; vec4 w = modelMatrix * vec4(position, 1.0); vWorld = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }
     `,
     fragmentShader: /* glsl */ `
-      uniform float time; varying vec3 vWorld;
+      uniform float time; uniform sampler2D map; uniform float hasMap; varying vec3 vWorld;
       float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
       float noise(vec2 p) { vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
         return mix(mix(hash(i), hash(i+vec2(1,0)), f.x), mix(hash(i+vec2(0,1)), hash(i+vec2(1,1)), f.x), f.y); }
@@ -130,7 +142,18 @@ function liquidMaterial(kind) {
       void main() {
         vec2 p = vWorld.xz * 0.12;
         ${kind === 'lava'
-          ? `float n = fbm(p + vec2(time*0.05, time*0.03) + fbm(p*1.7 - time*0.04));
+          ? `if (hasMap > 0.5) {
+               vec2 uv = vWorld.xz / 12.0;
+               vec2 d = vec2(fbm(uv * 1.3 + time * 0.03), fbm(uv * 1.3 - time * 0.025 + 7.0)) - 0.5;
+               vec3 a = texture2D(map, uv + d * 0.09 + vec2(time * 0.006, time * 0.003)).rgb;
+               vec3 b = texture2D(map, uv * 0.47 - d * 0.06 + vec2(-time * 0.004, time * 0.005)).rgb;
+               vec3 col = max(a, b * 0.95);
+               float heat = max(col.r - col.b, 0.0);
+               float pulse = 0.9 + 0.2 * sin(time * 1.1 + fbm(uv * 2.5 + time * 0.05) * 7.0);
+               gl_FragColor = vec4(col * (0.85 + heat * 0.9 * pulse), 1.0);
+               return;
+             }
+             float n = fbm(p + vec2(time*0.05, time*0.03) + fbm(p*1.7 - time*0.04));
              float veins = smoothstep(0.45, 0.75, n);
              vec3 col = mix(vec3(0.35,0.03,0.0), vec3(1.0,0.35,0.02), veins);
              col = mix(col, vec3(1.0,0.85,0.35), smoothstep(0.72, 0.9, n));
@@ -151,7 +174,7 @@ export class World {
     this.canvas = canvas;
     this.overlay = overlay;
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.setPixelRatio(LOW ? 1 : Math.min(window.devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -161,7 +184,7 @@ export class World {
     this.hemi = new THREE.HemisphereLight('#fff', '#333', 1.2);
     this.sun = new THREE.DirectionalLight('#fff', 2.4);
     this.sun.castShadow = true;
-    this.sun.shadow.mapSize.set(2048, 2048);
+    this.sun.shadow.mapSize.set(LOW ? 1024 : 2048, LOW ? 1024 : 2048);
     this.sun.shadow.bias = -0.0005;
     this.sun.shadow.normalBias = 0.02;
     this.scene.add(this.hemi, this.sun, this.sun.target);
@@ -262,14 +285,24 @@ export class World {
       // The platform is a unit disc scaled by the live arena radius.
       const geo = new THREE.CylinderGeometry(1, 1.04, 1, 128, 1);
       floorTex.repeat.set(f.r / 2.5, f.r / 2.5);
-      const side = M.mat(map.theme === 'lava' ? '#3a302a' : '#9cc4dc');
-      const top = new THREE.MeshStandardMaterial({ map: floorTex, roughness: map.theme === 'ice' ? 0.25 : 0.9, metalness: map.theme === 'ice' ? 0.1 : 0 });
+      let side = M.mat(map.theme === 'lava' ? '#3a302a' : '#9cc4dc');
+      let topTex = floorTex;
+      if (map.theme === 'lava') {
+        // Painted marble slabs and a heat-scorched stone rim.
+        topTex = artTexture('tex_marble', (g, s) => { g.fillStyle = '#8a8580'; g.fillRect(0, 0, s, s); }, { repeat: true });
+        const rimTex = artTexture('tex_rim', (g, s) => { g.fillStyle = '#3a302a'; g.fillRect(0, 0, s, s); }, { repeat: true });
+        side = new THREE.MeshStandardMaterial({ map: rimTex, roughness: 0.95 });
+      }
+      const top = new THREE.MeshStandardMaterial({ map: topTex, roughness: map.theme === 'ice' ? 0.25 : 0.85, metalness: map.theme === 'ice' ? 0.1 : 0 });
       const disc = new THREE.Mesh(geo, [side, top, side]);
       disc.position.y = -0.5;
       disc.receiveShadow = true;
       disc.scale.set(f.r, 1, f.r);
+      disc.userData.worldUV = map.theme === 'lava';
       this.mapGroup.add(disc);
       this.floorMesh = disc;
+      this.floorR = null;
+      this.setFloorRadius(f.r);
       if (map.theme === 'lava') {
         const rim = new THREE.Mesh(new THREE.TorusGeometry(1, 0.012, 6, 128).rotateX(Math.PI / 2), new THREE.MeshBasicMaterial({ color: '#ff7a20', toneMapped: false }));
         rim.position.y = -0.25;
@@ -277,10 +310,12 @@ export class World {
         disc.userData.rim = rim;
         this.mapGroup.add(rim);
         // Volcanic rocks jutting out of the lava sea.
+        const rockMat = new THREE.MeshStandardMaterial({ map: artTexture('tex_rock', (g, s) => { g.fillStyle = '#2a2220'; g.fillRect(0, 0, s, s); }, { repeat: true }), color: '#c8b4a4', emissive: '#5a1a06', emissiveIntensity: 0.6, roughness: 0.95, flatShading: true });
         for (let i = 0; i < 26; i++) {
           const a = Math.random() * Math.PI * 2;
           const r = f.r + 6 + Math.random() * 16;
           const rock = M.lavaRock(1 + Math.random() * 2.5);
+          rock.children[0].material = rockMat;
           rock.position.set(Math.cos(a) * r, -0.6, Math.sin(a) * r);
           this.mapGroup.add(rock);
         }
@@ -360,10 +395,21 @@ export class World {
   // -------------------------------------------------------- snapshots
 
   pushSnapshot(snap) {
+    // Clock sync: `offset` maps game time to local time. Each snapshot gives
+    // a sample (arrival minus game time) that is the true offset plus network
+    // delay, so the smallest sample over the last couple of seconds is the best
+    // estimate. The offset eases toward it so that render time speeds up or
+    // slows down gently instead of jumping. It can follow a host whose clock
+    // runs a little fast or slow.
     const now = performance.now() / 1000;
     const t = snap.tk / TICK_RATE;
     const sample = now - t;
-    this.offset = this.offset == null ? sample : Math.min(sample, this.offset + 0.002);
+    this.samples = this.samples || [];
+    this.samples.push(sample);
+    if (this.samples.length > 40) this.samples.shift();
+    const target = Math.min(...this.samples);
+    if (this.offset == null || Math.abs(target - this.offset) > 0.5) this.offset = target;
+    else this.offset += (target - this.offset) * 0.1;
     const ents = new Map();
     for (const e of snap.ents) ents.set(e.id, e);
     this.snaps.push({ t, ents, links: snap.links || [], snap });
@@ -469,20 +515,8 @@ export class World {
         if (e.k.startsWith('p_')) {
           const spell = e.k.slice(2);
           const c = this.spellColors[spell] || '#fff';
-          obj = new THREE.Group();
-          const size = spell === 'gravity' ? 0.55 : 0.32;
-          const core = new THREE.Mesh(new THREE.SphereGeometry(size, 12, 10), new THREE.MeshBasicMaterial({ color: spell === 'gravity' ? '#140022' : c, toneMapped: false }));
-          obj.add(core);
-          if (spell === 'boomerang') {
-            const blade = new THREE.Mesh(new THREE.TorusGeometry(0.35, 0.08, 6, 12, Math.PI * 1.2), new THREE.MeshBasicMaterial({ color: c, toneMapped: false }));
-            blade.rotation.x = Math.PI / 2;
-            obj.add(blade);
-            core.scale.setScalar(0.4);
-            v.parts = { spin: blade };
-          }
-          const light = new THREE.PointLight(c, 6, 6, 2);
-          obj.add(light);
-          obj.position.y = 1;
+          v.missile = new Missile(this.fx, spell, c);
+          obj = v.missile.obj;
           v.color = c;
           v.spell = spell;
         } else {
@@ -506,9 +540,19 @@ export class World {
       this.overlay.appendChild(bar);
       v.bar = bar;
       v.hpFill = bar.querySelector('.hpfill');
-      const shield = new THREE.Mesh(new THREE.SphereGeometry(1.05, 20, 14), new THREE.MeshBasicMaterial({ color: '#ffe066', transparent: true, opacity: 0.28, depthWrite: false, blending: THREE.AdditiveBlending }));
+      // A painted magic bubble (art/fx_shield_white, tinted).
+      const shield = new THREE.Sprite(new THREE.SpriteMaterial({ map: artTexture('fx_shield_white'), color: '#ffe066', transparent: true, opacity: 0.8, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }));
       shield.position.y = 0.9;
       shield.visible = false;
+      shield.renderOrder = 9;
+      // The glow on the staff (the Blood Elf wizard's is green).
+      const orb = obj.userData.orb;
+      if (orb) {
+        const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: artTexture('fx_flare'), color: '#7dff6a', transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }));
+        glow.scale.setScalar(0.9);
+        orb.add(glow);
+        v.staffGlow = glow;
+      }
       obj.add(shield);
       v.shield = shield;
       const bomb = new THREE.Mesh(new THREE.SphereGeometry(0.32, 12, 10), M.mat('#222', { metalness: 0.4 }));
@@ -521,6 +565,7 @@ export class World {
   }
 
   removeView(v) {
+    v.missile?.release();
     this.entGroup.remove(v.obj);
     v.bar?.remove();
     v.obj.traverse((o) => {
@@ -554,11 +599,13 @@ export class World {
       const latest = this.snaps[this.snaps.length - 1];
       // Remove views for entities that no longer exist.
       for (const [id, v] of this.views) {
-        if (!b.ents.has(id) && !latest.ents.has(id)) {
+        const flying = v.spell && a.ents.has(id) && rt - a.t <= (b.t - a.t) / 2;
+        if (!b.ents.has(id) && !latest.ents.has(id) && !flying) {
           this.removeView(v);
           this.views.delete(id);
         }
       }
+      this.frameT = { ta: a.t, tb: b.t, rt };
       for (const [id, eb] of b.ents) {
         const ea = a.ents.get(id) || eb;
         let v = this.views.get(id);
@@ -570,6 +617,15 @@ export class World {
       }
       // Hide views that exist only in newer snapshots.
       for (const [id, v] of this.views) if (!b.ents.has(id)) v.obj.visible = false;
+      // A projectile that died between the two snapshots flies on for half the
+      // gap, so it vanishes about when its impact effect plays.
+      for (const [id, ea] of a.ents) {
+        const v = this.views.get(id);
+        if (!v?.spell || b.ents.has(id) || rt - a.t > (b.t - a.t) / 2) continue;
+        const d = rt - a.t;
+        v.obj.visible = true;
+        v.missile.update(ea.x + (ea.vx ?? 0) * d, ea.y + (ea.vy ?? 0) * d, dt, true);
+      }
       this.updateLinks(b, a, k);
       const snap = b.snap;
       if (this.floorMesh && snap.arena) this.setFloorRadius(lerp(a.snap.arena?.r ?? snap.arena.r, snap.arena.r, k));
@@ -648,17 +704,62 @@ export class World {
 
   setFloorRadius(r) {
     r = Math.max(0.01, r);
+    if (r === this.floorR) return;
     this.floorMesh.scale.set(r, 1, r);
+    if (this.floorMesh.userData.worldUV) {
+      // Keep the texture fixed in the world as the disc shrinks: slabs are
+      // 128 units (2.56 m) and the texture holds 4 × 4 of them; the rim
+      // texture repeats every 4 m around the edge.
+      const [sideMat, topMat] = this.floorMesh.material;
+      const L = 4 * 2.56;
+      topMat.map.repeat.set((2 * r) / L, (2 * r) / L);
+      topMat.map.offset.set(-r / L, -r / L);
+      sideMat.map.repeat.set(Math.max(1, Math.round((2 * Math.PI * r) / 4)), 1);
+    }
     const rim = this.floorMesh.userData.rim;
     if (rim) rim.scale.set(r, 1, r);
     this.floorR = r;
   }
 
+  // Where a projectile is at render time. Snapshots carry its velocity, so
+  // between two snapshots it follows a cubic Hermite curve (exact for straight
+  // flight, smooth for homing and boomerang arcs); a projectile newer than the
+  // earlier snapshot is traced back along its velocity to its launch; past the
+  // newest snapshot it is carried forward briefly. So it never waits or jumps.
+  projectilePos(a, b) {
+    const { ta, tb, rt } = this.frameT;
+    if (a !== b && tb > ta) {
+      const h = tb - ta;
+      const s = Math.max(0, Math.min(1, (rt - ta) / h));
+      const s2 = s * s;
+      const s3 = s2 * s;
+      const h00 = 2 * s3 - 3 * s2 + 1;
+      const h10 = s3 - 2 * s2 + s;
+      const h01 = -2 * s3 + 3 * s2;
+      const h11 = s3 - s2;
+      return {
+        x: h00 * a.x + h10 * h * (a.vx ?? 0) + h01 * b.x + h11 * h * (b.vx ?? 0),
+        z: h00 * a.y + h10 * h * (a.vy ?? 0) + h01 * b.y + h11 * h * (b.vy ?? 0),
+        born: true,
+      };
+    }
+    // Only one snapshot has it: extrapolate from it (backward to the launch,
+    // or forward up to 0.15 s).
+    const d = Math.max(-(b.a ?? 0), Math.min(0.15, rt - tb));
+    return { x: b.x + (b.vx ?? 0) * d, z: b.y + (b.vy ?? 0) * d, born: rt - tb >= -(b.a ?? 0) - 1e-3 };
+  }
+
   updateView(v, a, b, k, dt) {
     const o = v.obj;
     o.visible = true;
-    const x = lerp(a.x, b.x, k);
-    const z = lerp(a.y, b.y, k);
+    let x = lerp(a.x, b.x, k);
+    let z = lerp(a.y, b.y, k);
+    if (v.spell && this.frameT) {
+      const p = this.projectilePos(a, b);
+      x = p.x;
+      z = p.z;
+      if (!p.born) o.visible = false;
+    }
     const f = lerpAngle(a.f ?? 0, b.f ?? 0, k);
     v.x = x;
     v.z = z;
@@ -684,6 +785,13 @@ export class World {
         v.raise = Math.max(0, Math.min(1, (v.raise || 0) + dt * (windup ? 8 : -5)));
         if (v.castT > 0) v.castT -= dt;
         const swing = v.castT > 0 ? Math.sin((v.castT / 0.3) * Math.PI) : 0;
+        if (v.staffGlow && !b.dead) {
+          v.staffGlow.scale.setScalar(0.9 + v.raise * 0.7 + swing * 1.4 + Math.sin(this.time * 7 + v.id) * 0.08);
+          if ((moving || v.raise > 0.1) && Math.random() < 0.35) {
+            v.staffGlow.getWorldPosition(this._wp || (this._wp = new THREE.Vector3()));
+            this.fx.trail(this._wp.x, this._wp.y, this._wp.z, '#6aff50', 0.35, 0.4, 0.05);
+          }
+        }
         o.userData.staff.rotation.x = -(v.raise * 0.9 + swing * 0.6);
         // Sinks a little when standing in lava.
         const inLava = fx.includes('burn');
@@ -693,10 +801,11 @@ export class World {
         v.shield.visible = fx.includes('shield') || fx.includes('rush') || fx.includes('invuln');
         if (v.shield.visible) {
           const shieldR = fx.includes('shield') ? b.sr || 1 : 1;
-          v.shield.scale.setScalar(shieldR);
-          v.shield.position.y = shieldR > 1.5 ? 0 : 0.9;
+          v.shield.scale.setScalar(shieldR * 2.3 * (1 + Math.sin(this.time * 9) * 0.02));
+          v.shield.position.y = shieldR > 1.5 ? 0.6 : 1.0;
           v.shield.material.color.set(fx.includes('shield') ? '#ffe066' : fx.includes('rush') ? '#7fe0ff' : '#ffffff');
-          v.shield.material.opacity = (fx.includes('shield') ? 0.2 : 0.14) + Math.sin(this.time * 20) * 0.05;
+          v.shield.material.opacity = (fx.includes('shield') ? 0.75 : 0.55) + Math.sin(this.time * 20) * 0.08;
+          v.shield.material.rotation += dt * 0.4;
         }
         if (fx.includes('slow') && Math.random() < 0.3) this.fx.trail(x, 0.4, z, '#d0102a', 0.4, 0.5, 0.6);
         v.bomb.visible = fx.includes('bomb');
@@ -752,7 +861,12 @@ export class World {
         const fall = v.k === 'meteor' ? t : Math.max(0, (t - 0.6) / 0.4);
         p.rock.visible = fall > 0;
         p.rock.position.set(-(1 - fall) * 6, 0.5 + (1 - fall) * 22, (1 - fall) * 4);
-        if (v.k === 'meteor' && fall > 0) this.fx.trail(o.position.x + p.rock.position.x, p.rock.position.y + 0.5, o.position.z + p.rock.position.z, '#ff7020', 1.1, 0.4, 0.5);
+        if (v.k === 'meteor' && fall > 0) {
+          const rx = o.position.x + p.rock.position.x;
+          const rz = o.position.z + p.rock.position.z;
+          this.fx.fire(rx, p.rock.position.y + 0.4, rz, 1.8 + Math.random(), 0.45, { vx: -3, vy: 5, vz: 2 });
+          if (Math.random() < 0.5) this.fx.smoke(rx, p.rock.position.y + 0.8, rz, '#2a2220', 1.4, 1);
+        }
         break;
       }
       case 'wisparm': {
@@ -796,48 +910,28 @@ export class World {
         o.position.set(x, 0, z);
         break;
       default:
-        if (v.spell) {
-          o.position.x = x;
-          o.position.z = z;
-          if (v.spell === 'gravity') {
-            for (let i = 0; i < 3; i++) {
-              const ang = Math.random() * Math.PI * 2;
-              const rr = 1 + Math.random() * 3;
-              this.fx.add.spawn(x + Math.cos(ang) * rr, 0.6 + Math.random(), z + Math.sin(ang) * rr, -Math.cos(ang) * rr * 2, 0, -Math.sin(ang) * rr * 2, new THREE.Color('#b36bff'), 0.5, 0.45, 0, 0);
-            }
-          } else {
-            this.fx.trail(x, 1, z, v.color, v.spell === 'fireball' ? 0.9 : 0.6, 0.35, 0.2);
-            if (v.spell === 'fireball') this.fx.trail(x, 1, z, '#ffd080', 0.5, 0.2, 0.1);
-          }
-          if (v.parts?.spin) v.parts.spin.rotation.z += dt * 20;
-        }
+        if (v.missile) v.missile.update(x, z, dt, o.visible);
     }
   }
 
+  // Link chains: a scrolling teal energy beam, like WC3's drain lightning.
   updateLinks(b) {
     const links = b.links || [];
-    while (this.linkBeams.length < links.length) {
-      const m = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 1, 6, 1, true), new THREE.MeshBasicMaterial({ color: '#8affd8', toneMapped: false, transparent: true, opacity: 0.9 }));
-      this.scene.add(m);
-      this.linkBeams.push(m);
-    }
+    while (this.linkBeams.length < links.length) this.linkBeams.push(this.fx.beam({ color: '#6affd0', width: 0.9, scroll: 3, map: artTexture('fx_lightning_white', undefined, { repeat: true }) }));
     this.linkBeams.forEach((m, i) => {
       const l = links[i];
       const va = l && this.views.get(l[0]);
       const vb = l && this.views.get(l[1]);
       if (!va || !vb) {
-        m.visible = false;
+        m.mesh.visible = false;
         return;
       }
-      m.visible = true;
-      const p1 = new THREE.Vector3(va.x, 1.1, va.z);
-      const p2 = new THREE.Vector3(vb.x, 1.1, vb.z);
-      m.position.copy(p1).add(p2).multiplyScalar(0.5);
-      m.scale.set(1, p1.distanceTo(p2), 1);
-      m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), p2.clone().sub(p1).normalize());
-      if (Math.random() < 0.5) {
+      m.mesh.visible = true;
+      m.set(va.x, 1.2, va.z, vb.x, 1.2, vb.z);
+      m.scroll(1 / 60);
+      if (Math.random() < 0.4) {
         const t = Math.random();
-        this.fx.trail(p1.x + (p2.x - p1.x) * t, 1.1, p1.z + (p2.z - p1.z) * t, '#8affd8', 0.4, 0.3, 0.1);
+        this.fx.spark(va.x + (vb.x - va.x) * t, 1.2, va.z + (vb.z - va.z) * t, '#8affd8', 0.55, 0.3, 1);
       }
     });
   }
@@ -965,30 +1059,45 @@ export class World {
       case 'cast': {
         const v = this.views.get(e.u);
         if (v) v.castT = 0.3;
-        fx.burst(e.x, 1.2, e.y, this.spellColors[e.s] || '#fff', { n: 8, speed: 2, size: 0.4, life: 0.3 });
+        // The staff flares as the spell leaves it.
+        const c = this.spellColors[e.s] || '#fff';
+        fx.add.spawn(e.x, 1.6, e.y, 0, 0.3, 0, new THREE.Color(c), 2.2, 0.3, 0, 0, { endScale: 1.5 });
+        for (let i = 0; i < 6; i++) fx.spark(e.x, 1.5, e.y, c, 0.6, 0.35, 2);
         play(e.s);
         break;
       }
-      case 'boom':
-        fx.burst(e.x, 0.8, e.y, e.c || '#ff8040', { n: e.big ? 70 : 24, speed: e.big ? 9 : 5, size: e.big ? 1.1 : 0.7, life: e.big ? 0.9 : 0.5 });
-        fx.ring(e.x, e.y, e.r || 1, e.c || '#ff8040', e.big ? 0.6 : 0.35);
+      case 'boom': {
+        // Fire (Fireball, Meteor, a detonated Fireball) explodes in flame, like
+        // WC3's fire-lord death explosion; other magic bursts in its colour.
+        const c = e.c || '#ff8040';
+        const size = e.big ? Math.max(1.4, (e.r || 2) / 1.6) : 0.8;
+        if (FIRE_COLORS.has(c)) fx.explosion(e.x, e.y, { size, y: e.big ? 0.6 : 1.1 });
+        else {
+          fx.magicBurst(e.x, e.big ? 0.8 : 1.1, e.y, c, e.big ? 1.6 : 0.9);
+          fx.ring(e.x, e.y, e.r || 1, c, e.big ? 0.6 : 0.35);
+        }
         if (e.big) {
-          fx.flash(e.x, e.y, e.r || 2, e.c || '#ff8040', 0.4);
-          for (let i = 0; i < 12; i++) fx.smoke(e.x, 0.5, e.y, '#3a3230', 2, 1.4);
+          fx.flash(e.x, e.y, e.r || 2, c, 0.4);
+          if (e.r) fx.ring(e.x, e.y, e.r, c, 0.6);
           this.shake = 0.35;
         }
         play(e.big ? 'bigboom' : 'hit');
         break;
+      }
       case 'fizzle':
-        fx.burst(e.x, 1, e.y, e.c || '#fff', { n: 8, speed: 2, size: 0.4, life: 0.3 });
+        // A missile reaching the end of its range just winks out.
+        fx.add.spawn(e.x, 1.1, e.y, 0, 0, 0, new THREE.Color(e.c || '#fff'), 1.8, 0.2, 0, 0, { endScale: 0.2 });
         break;
       case 'bolt':
         fx.bolt(e.x1, e.y1, e.x2, e.y2);
         fx.flash(e.x2, e.y2, 2, '#9fd4ff', 0.2);
         break;
       case 'tele':
-        fx.burst(e.x1, 1, e.y1, '#d9f3ff', { n: 24, speed: 3, size: 0.5, life: 0.5 });
-        fx.burst(e.x2, 1, e.y2, '#d9f3ff', { n: 24, speed: 3, size: 0.5, life: 0.5 });
+        for (const [x, z] of [[e.x1, e.y1], [e.x2, e.y2]]) {
+          // A blink: a flash of pale blue light and sparkles rising in a column.
+          fx.magicBurst(x, 1, z, '#8fb8ff', 0.8);
+          for (let i = 0; i < 16; i++) fx.spark(x + (Math.random() - 0.5) * 1, 0.2 + Math.random() * 1.5, z + (Math.random() - 0.5) * 1, '#cfe4ff', 0.6, 0.7, 0.8);
+        }
         break;
       case 'dmg':
         fx.text(e.x, 2.2, e.y, String(e.n), '#ff5a5a');
@@ -1001,8 +1110,8 @@ export class World {
         play('reflect');
         break;
       case 'death':
-        fx.burst(e.x, 1, e.y, '#ff5020', { n: 40, speed: 5, size: 0.8, life: 0.8 });
-        for (let i = 0; i < 6; i++) fx.smoke(e.x, 0.5, e.y, '#302a28', 1.6, 1.5);
+        fx.explosion(e.x, e.y, { size: 1.3, y: 0.4 });
+        for (let i = 0; i < 6; i++) fx.smoke(e.x, 0.5, e.y, '#1a1412', 1.8, 2);
         play('death');
         break;
       case 'zap':

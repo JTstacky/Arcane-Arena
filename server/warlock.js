@@ -1146,7 +1146,8 @@ export class WarlockGame {
       if (fx.length) extra.fx = fx;
       ents.push(unitSnap(u, extra));
     }
-    for (const p of this.projectiles) ents.push({ id: p.id, k: 'p_' + p.kind, x: round2(p.x), y: round2(p.y), f: round2(Math.atan2(p.vy, p.vx)), o: p.owner });
+    // Velocity and age let clients place projectiles exactly between snapshots.
+    for (const p of this.projectiles) ents.push({ id: p.id, k: 'p_' + p.kind, x: round2(p.x), y: round2(p.y), vx: round2(p.vx), vy: round2(p.vy), a: round2(p.age), o: p.owner });
     for (const m of this.meteors) ents.push({ id: m.id, k: 'meteor', x: round2(m.x), y: round2(m.y), r: round2(m.aoe), t: round2(1 - m.t / m.delay), o: m.owner });
     if (this.phase !== 'shop') for (const o of this.obstacles) ents.push({ id: o.id, k: 'obstacle', x: round2(o.x), y: round2(o.y), r: round2(o.r) });
 

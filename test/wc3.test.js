@@ -64,6 +64,7 @@ function fakeRoom(n) {
 function duel() {
   const g = new WarlockGame(fakeRoom(2), { rounds: 3 });
   g.startRound();
+  g.obstacles = []; // random pillars would stop the test projectiles
   const a = g.ps.get(1);
   const b = g.ps.get(2);
   a.unit.x = 0; a.unit.y = 0; a.unit.setFacing(0);

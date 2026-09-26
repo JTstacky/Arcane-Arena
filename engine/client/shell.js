@@ -2,9 +2,10 @@
 // a game's config, so each game's index.html stays a one-line shell.
 
 import { escapeHtml } from './render/world.js';
+import { TOUCH } from './device.js';
 
 export function renderShell(cfg) {
-  const keys = cfg.keysHelp.map((k) => `<div>${k}</div>`).join('');
+  const keys = (TOUCH && cfg.touchHelp ? cfg.touchHelp : cfg.keysHelp).map((k) => `<div>${k}</div>`).join('');
   document.body.insertAdjacentHTML('afterbegin', `
     <canvas id="view"></canvas>
     <div id="overlay"></div>
@@ -67,7 +68,7 @@ export function renderShell(cfg) {
             <div id="modeopts"></div>
             <button id="start" class="btn primary big">Start game</button>
             <div id="waithost" class="fine" hidden>Waiting for the host to start…</div>
-            <div id="hostnote" class="fine" hidden>You’re hosting: the game runs in this tab, so keep it open until the match is over.</div>
+            <div id="hostnote" class="fine" hidden>You’re hosting: the game runs in this tab, so keep it open until the match is over.<span class="touchonly"> On a phone, switching apps or locking the screen pauses the match for everyone.</span></div>
           </div>
         </div>
       </div>
