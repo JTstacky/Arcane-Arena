@@ -10,7 +10,7 @@ Arcane Arena is a browser remake of **Warlock**, the classic Warcraft III custom
 
 ![Arcane Arena](docs/screenshot.png)
 
-**Play:** https://tenggames.com.au/Arcane-Arena/ (GitHub Pages).
+**Play:** https://tenggames.com.au/arcane-arena/
 
 ## Features
 
@@ -41,9 +41,9 @@ npm run build      # static site → dist/
 
 ## Deployment
 
-`.github/workflows/pages.yml` tests, builds and deploys to GitHub Pages on every push to `main`. One-time setup: **Settings → Pages → Source: GitHub Actions**.
+The game is published on **tenggames.com.au/arcane-arena/** as part of the Teng Games site ([JTstacky/Chess-tutor](https://github.com/JTstacky/Chess-tutor)). That site's deploy clones and builds this repo.
 
-Asset paths are relative, so the site works at any path: `<user>.github.io/Arcane-Arena/`, or `tenggames.com.au/Arcane-Arena/` when the account's Pages site uses that domain.
+On every push to `main`, `.github/workflows/publish.yml` tests and builds, then asks the site to redeploy. That step needs the repository secret `SITE_DISPATCH_TOKEN`: a fine-grained token with access to Chess-tutor only and **Contents: Read and write**. Without the secret, changes go live on the site's next deploy.
 
 ## How it works
 

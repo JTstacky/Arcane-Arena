@@ -261,3 +261,5 @@ body.targeting canvas { cursor: crosshair; }
 .wip { display: inline-block; margin-bottom: 10px; padding: 3px 10px; border-radius: 999px; font-size: 11px; letter-spacing: 1px; text-transform: uppercase; color: #ffd28a; background: rgba(255, 150, 40, 0.14); border: 1px solid rgba(255, 170, 60, 0.45); }
 .other a { color: var(--gold); }
 .blurb { margin: -4px 0 12px; }
+#homelink { position: fixed; top: 12px; left: 14px; z-index: 6; color: var(--gold); text-decoration: none; font-weight: 600; text-shadow: 0 1px 3px #000; }
+body:not(.inlobby) #homelink, #homelink[hidden] { display: none; }

@@ -24,6 +24,7 @@ export function renderShell(cfg) {
       <button id="hud-menu" class="iconbtn" title="Options">⚙</button>
     </div>
 
+    ${cfg.homeHref ? `<a id="homelink" href="${cfg.homeHref}">← Teng Games</a>` : ''}
     <section id="menu" class="screen">
       <div class="panel title-panel">
         <div class="wip" title="This game is still being built. Expect bugs and changes.">Early access · work in progress · ${escapeHtml(cfg.version)}</div>
@@ -39,7 +40,7 @@ export function renderShell(cfg) {
         </div>
         <div class="modes">${cfg.pills.map((p) => `<div class="mode-pill">${p}</div>`).join('')}</div>
         <p class="fine">Play solo against bots, or host and share the code or link with friends.${cfg.p2p ? ' The host’s browser runs the game — keep that tab open.' : ''}</p>
-        ${cfg.otherGame ? `<p class="fine other">Also on Teng Games: <a href="${cfg.otherGame.href}">${escapeHtml(cfg.otherGame.title)}</a></p>` : ''}
+        ${cfg.otherGame ? `<p class="fine other">Also on Teng Games: <a href="${cfg.otherGame.href}">${escapeHtml(cfg.otherGame.title)}</a>${cfg.homeHref ? ` · <a href="${cfg.homeHref}">All games</a>` : ''}</p>` : ''}
       </div>
     </section>
 

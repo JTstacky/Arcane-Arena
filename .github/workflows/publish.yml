@@ -1,0 +1,40 @@
+# On every push to main: test and build, then ask the Teng Games site
+# (JTstacky/Chess-tutor, which serves tenggames.com.au) to redeploy. Its
+# deploy builds this repo into tenggames.com.au/arcane-arena/.
+#
+# One-time setup: add a repository secret SITE_DISPATCH_TOKEN — a fine-grained
+# personal access token with access to JTstacky/Chess-tutor only and
+# "Contents: Read and write". Without it the site still picks up changes on its
+# next deploy (or run "Deploy to GitHub Pages" in Chess-tutor by hand).
+name: Publish to tenggames.com.au
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - name: Trigger the tenggames.com.au deploy
+        env:
+          TOKEN: ${{ secrets.SITE_DISPATCH_TOKEN }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "::warning::SITE_DISPATCH_TOKEN is not set; run the Chess-tutor deploy by hand to publish."
+            exit 0
+          fi
+          curl -fsS -X POST \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/JTstacky/Chess-tutor/dispatches \
+            -d '{"event_type":"game-updated","client_payload":{"repo":"${{ github.repository }}","sha":"${{ github.sha }}"}}'

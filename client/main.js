@@ -49,5 +49,6 @@ startApp({
     prefix: 'tenggames-arcane-arena',
     createWorker: () => new Worker(new URL('./host-worker.js', import.meta.url), { type: 'module' }),
   },
-  otherGame: { title: "Hammerguy's Party", href: '../Hammerguy-s-Party/' },
+  otherGame: { title: "Hammerguy's Party", href: '/hammerguys-party/' },
+  homeHref: '/',
 });
