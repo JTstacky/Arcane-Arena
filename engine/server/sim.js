@@ -1,6 +1,6 @@
 // Small shared simulation helpers: WC3-style "click to move" units with a
 // separate knockback velocity that decays with friction, plus unit-unit
-// collision. Used by Warlock and by every Uther Party minigame.
+// collision.
 
 let nextId = 1;
 export const newId = () => nextId++;
@@ -23,19 +23,28 @@ export const wrapAngle = (a) => {
   return (a < 0 ? a + Math.PI * 2 : a) - Math.PI;
 };
 
-// Warcraft III movement model.
-//  - The engine updates unit facing every 0.03 s "frame". The object-editor
-//    Turn Rate is in radians per frame, but rotation speed is capped at
-//    ~0.2 rad/frame (~382°/s, measured in game); higher values only raise the
-//    angular acceleration. Units ease in and out of turns.
-//  - Propulsion Window (default 60°): a unit only walks while facing within
-//    that angle of where it is going; otherwise it turns on the spot first.
-//    It always walks in the direction it faces, so turns become short arcs.
+// Warcraft III movement model, as measured in the real engine (see
+// docs/wc3-observations.md, sections 1-2 and 9).
+//  - Units steer by a logical *heading* that turns once per 0.03 s step by at
+//    most Turn Rate radians (0.6 rad = 34.4° per step for the warlock).
+//  - Propulsion Window (60°): each step first checks whether the heading,
+//    *before* this step's turn, is within the window of the target. If so the
+//    unit walks during the step, along the heading *after* the turn.
+//  - Walking is full speed at once, with no acceleration or deceleration. The
+//    unit stops dead about 11 units short of the clicked point.
+//  - The drawn model uses a separate, slower *display* facing: 0.07, then
+//    0.14, then at most min(turnRate, 0.2) rad per step, easing into the final
+//    angle. So after a 180° order the unit visibly slides backwards for about
+//    0.35 s.
+//  - Knockback is a separate velocity. Every step: v *= friction, then
+//    pos += v (the Warlock map's script loop).
 export const WC3 = {
-  FRAME: 0.03,
-  MAX_TURN_PER_FRAME: 0.2,
-  DEFAULT_TURN_RATE: 0.5,
+  STEP: 0.03,
+  DISPLAY_TURN: [0.07, 0.14, 0.2], // rad per step while the model catches up
+  DISPLAY_EASE: 0.7, // share of the remaining angle covered per step at the end
+  DEFAULT_TURN_RATE: 0.6,
   DEFAULT_PROP_WINDOW: (60 * Math.PI) / 180,
+  ARRIVE: 11 / 50, // metres short of the target where a move order ends
 };
 
 export class Unit {
@@ -52,11 +61,11 @@ export class Unit {
     this.vy = 0;
     this.mx = 0; // last movement velocity (for bots / rendering)
     this.my = 0;
-    this.facing = 0;
-    this.angVel = 0;
-    this.turnRate = WC3.DEFAULT_TURN_RATE; // radians per 0.03 s frame (object editor units)
+    this.heading = 0; // logical facing the unit steers by
+    this.facing = 0; // display facing (the drawn model)
+    this.dispStep = 0; // steps the display facing has spent catching up
+    this.turnRate = WC3.DEFAULT_TURN_RATE; // radians per 0.03 s step (object-editor units)
     this.propWindow = WC3.DEFAULT_PROP_WINDOW;
-    this.faceTo = null; // angle to turn toward when not moving (e.g. while casting)
     this.target = null; // {x, y} move order
     this.alive = true;
     this.hp = hp;
@@ -68,32 +77,42 @@ export class Unit {
     this.flags = {};
   }
 
+  setFacing(a) {
+    this.heading = this.facing = wrapAngle(a);
+    this.dispStep = 0;
+  }
+
   order(x, y) {
     this.target = { x, y };
-    this.faceTo = null;
   }
 
   stop() {
     this.target = null;
   }
 
-  // Rotates toward `desired` with WC3-style capped, eased angular velocity.
-  // Returns the remaining angle.
-  turnToward(desired, dt) {
-    const F = WC3.FRAME;
-    const diff = wrapAngle(desired - this.facing);
-    const maxV = Math.min(this.turnRate, WC3.MAX_TURN_PER_FRAME) / F;
-    const acc = (this.turnRate * WC3.MAX_TURN_PER_FRAME) / (F * F);
-    const want = Math.sign(diff) * Math.min(maxV, Math.sqrt(2 * acc * Math.abs(diff)));
-    this.angVel += clamp(want - this.angVel, -acc * dt, acc * dt);
-    const step = this.angVel * dt;
-    if (Math.abs(diff) < 1e-3 || (Math.sign(step) === Math.sign(diff) && Math.abs(step) >= Math.abs(diff))) {
-      this.facing = desired;
-      this.angVel = 0;
-      return 0;
+  // Turns the heading one step toward `want` and returns the angle still
+  // left to turn afterwards.
+  turnStep(want, dt) {
+    const diff = wrapAngle(want - this.heading);
+    const max = this.turnRate * (dt / WC3.STEP);
+    this.heading = wrapAngle(this.heading + clamp(diff, -max, max));
+    return Math.abs(wrapAngle(want - this.heading));
+  }
+
+  // The drawn model chases the heading more slowly than the unit steers.
+  updateDisplay(dt) {
+    const diff = wrapAngle(this.heading - this.facing);
+    if (Math.abs(diff) < 0.005) {
+      this.facing = this.heading;
+      this.dispStep = 0;
+      return;
     }
-    this.facing = wrapAngle(this.facing + step);
-    return Math.abs(wrapAngle(desired - this.facing));
+    const k = dt / WC3.STEP;
+    const ramp = WC3.DISPLAY_TURN[Math.min(this.dispStep, WC3.DISPLAY_TURN.length - 1)];
+    const cap = Math.min(ramp, Math.max(this.turnRate, 0.07)) * k;
+    const step = Math.max(Math.min(cap, Math.abs(diff) * Math.min(1, WC3.DISPLAY_EASE * k)), 0.005);
+    this.facing = wrapAngle(this.facing + Math.sign(diff) * Math.min(step, Math.abs(diff)));
+    this.dispStep++;
   }
 
   knock(dx, dy, force) {
@@ -107,15 +126,15 @@ export class Unit {
   }
 }
 
-// Moves every living unit one step. `friction` is the exponential decay rate
-// of knockback velocity; `linear` a constant deceleration so knockback ends.
-export function stepUnits(units, dt, { friction = 2.4, linear = 1.2, controlLoss = true } = {}) {
+// Moves every living unit one 0.03 s step. `friction` multiplies knockback
+// velocity once per step (Warlock: 0.96). With `controlLoss`, heavy
+// knockback also reduces walking speed.
+export function stepUnits(units, dt, { friction = 0.9, controlLoss = true } = {}) {
+  const k = dt / WC3.STEP;
   for (const u of units) {
     if (!u.alive) continue;
     if (u.stun > 0) u.stun -= dt;
 
-    // Movement from orders, WC3 style: turn, then walk along the facing.
-    // Heavy knockback reduces how much control you have (minigames only).
     u.mx = 0;
     u.my = 0;
     u.turning = false;
@@ -123,50 +142,44 @@ export function stepUnits(units, dt, { friction = 2.4, linear = 1.2, controlLoss
       const dx = u.target.x - u.x;
       const dy = u.target.y - u.y;
       const d = Math.hypot(dx, dy);
-      const sp = u.speed * u.speedMult * (controlLoss ? clamp(1 - u.kbSpeed / 18, 0.25, 1) : 1);
-      const step = sp * dt;
-      if (d <= Math.max(step, 0.02)) {
-        u.x = u.target.x;
-        u.y = u.target.y;
+      if (d <= WC3.ARRIVE) {
         u.target = null;
       } else {
-        const rem = u.turnToward(Math.atan2(dy, dx), dt);
-        u.turning = rem > 0;
-        if (rem <= u.propWindow) {
-          // Close to the goal, head straight in so we never orbit it.
-          const dirX = d < step * 3 ? dx / d : Math.cos(u.facing);
-          const dirY = d < step * 3 ? dy / d : Math.sin(u.facing);
-          u.mx = dirX * sp;
-          u.my = dirY * sp;
-          u.x += u.mx * dt;
-          u.y += u.my * dt;
+        const want = Math.atan2(dy, dx);
+        // The propulsion window is tested on the heading before this step's turn.
+        const walk = Math.abs(wrapAngle(want - u.heading)) <= u.propWindow + 1e-6;
+        u.turning = u.turnStep(want, dt) > 1e-3;
+        if (walk) {
+          const sp = u.speed * u.speedMult * (controlLoss ? clamp(1 - u.kbSpeed / 18, 0.25, 1) : 1);
+          const step = Math.min(sp * dt, d - WC3.ARRIVE);
+          u.mx = Math.cos(u.heading) * sp;
+          u.my = Math.sin(u.heading) * sp;
+          u.x += Math.cos(u.heading) * step;
+          u.y += Math.sin(u.heading) * step;
+          if (d - step <= WC3.ARRIVE + 1e-6) u.target = null;
         }
       }
-    } else if (u.faceTo != null && u.stun <= 0) {
-      u.turning = u.turnToward(u.faceTo, dt) > 0;
-      if (!u.turning) u.faceTo = null;
-    } else {
-      u.angVel = 0;
     }
+    u.updateDisplay(dt);
 
-    // Knockback.
-    const s = u.kbSpeed;
-    if (s > 0) {
+    // Knockback: friction first, then move, as in the script.
+    if (u.vx || u.vy) {
+      const f = Math.pow(friction, k);
+      u.vx *= f;
+      u.vy *= f;
       u.x += u.vx * dt;
       u.y += u.vy * dt;
-      const decay = Math.exp(-friction * dt);
-      const ns = Math.max(0, s * decay - linear * dt);
-      const k = ns / s;
-      u.vx *= k;
-      u.vy *= k;
+      if (u.vx * u.vx + u.vy * u.vy < 1e-6) u.vx = u.vy = 0;
     }
   }
 }
 
-// Pushes overlapping solid units apart. Fast-moving (knocked) units transfer
-// part of their momentum, so a warlock flying across the arena can bowl
-// another one over — a very Warlock thing to happen.
-export function collideUnits(units) {
+// Keeps solid units from overlapping (the engine's pathing). With
+// `swap: true`, two units that run into each other swap knockback velocities,
+// as in the Warlock script: a warlock flying across the arena stops dead and
+// the one it hits flies on. Otherwise fast units pass on part of their
+// momentum. `skip(a, b)` can exempt a pair from the exchange.
+export function collideUnits(units, { swap = false, skip = null } = {}) {
   for (let i = 0; i < units.length; i++) {
     const a = units[i];
     if (!a.alive || !a.solid) continue;
@@ -187,9 +200,13 @@ export function collideUnits(units) {
       a.y -= ny * overlap * (b.mass / tm);
       b.x += nx * overlap * (a.mass / tm);
       b.y += ny * overlap * (a.mass / tm);
-      // Exchange knockback momentum along the collision normal.
       const rel = (a.vx - b.vx) * nx + (a.vy - b.vy) * ny;
-      if (rel > 2) {
+      if (swap) {
+        if (rel > 0 && !skip?.(a, b)) {
+          [a.vx, b.vx] = [b.vx, a.vx];
+          [a.vy, b.vy] = [b.vy, a.vy];
+        }
+      } else if (rel > 2) {
         const imp = rel * 0.6;
         a.vx -= nx * imp * (b.mass / tm);
         a.vy -= ny * imp * (b.mass / tm);
@@ -218,7 +235,7 @@ export function unitSnap(u, extra = {}) {
   const s = { id: u.id, k: u.kind, x: round2(u.x), y: round2(u.y), f: round2(u.facing) };
   if (u.owner != null) s.o = u.owner;
   if (u.maxHp) {
-    s.hp = Math.ceil(u.hp);
+    s.hp = Math.round(u.hp * 10) / 10;
     s.mhp = u.maxHp;
   }
   if (!u.alive) s.dead = 1;

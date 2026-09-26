@@ -1,14 +1,25 @@
 // The 3D world: builds maps, keeps a view object per server entity,
 // interpolates between snapshots, plays events as effects and drives the
-// Warcraft III-style camera (56° angle of attack, following your hero).
+// Warcraft III camera.
+//
+// The camera copies WC3's default game camera (measured in-game): distance
+// 1650 units (33 m) from a target on the ground, angle of attack 304° (56°
+// down), looking north. WC3 renders a 4:3 image in which 1550 units fit
+// across the screen centre; the vertical field of view below keeps that
+// vertical extent, and wider windows see further to the sides. The camera does
+// not follow your hero: scroll with the screen edges or arrow keys, Space
+// centres it.
 
 import * as THREE from 'three';
 import * as M from './models.js';
 import { Effects } from './effects.js';
 import { play } from '../audio.js';
+import { TICK_RATE } from '../../shared/constants.js';
 
 const INTERP_DELAY = 0.11; // seconds behind the newest snapshot
 const CAM_PITCH = (56 * Math.PI) / 180;
+const CAM_FOV = 2 * Math.atan(0.75 * (775 / 1650)) * (180 / Math.PI); // ≈ 38.8° vertical
+export const CAM_DISTANCE = 1650 / 50;
 
 // ------------------------------------------------------------ textures
 
@@ -146,7 +157,7 @@ export class World {
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.05;
     this.scene = new THREE.Scene();
-    this.camera = new THREE.PerspectiveCamera(50, 1, 0.5, 400);
+    this.camera = new THREE.PerspectiveCamera(CAM_FOV, 1, 0.5, 400);
     this.hemi = new THREE.HemisphereLight('#fff', '#333', 1.2);
     this.sun = new THREE.DirectionalLight('#fff', 2.4);
     this.sun.castShadow = true;
@@ -169,8 +180,9 @@ export class World {
     this.myId = null;
     this.myUnit = null;
     this.focus = new THREE.Vector3();
-    this.zoom = 28;
-    this.follow = true;
+    this.zoom = CAM_DISTANCE;
+    this.follow = false;
+    this.markers = [];
     this.time = 0;
     this.liquids = [];
     this.animated = [];
@@ -184,6 +196,16 @@ export class World {
     this.rangeRing.position.y = 0.06;
     this.rangeRing.visible = false;
     this.scene.add(this.rangeRing);
+    // WC3's blue area-target reticle, shown on the cursor while targeting.
+    this.reticle = new THREE.Group();
+    this.reticle.add(
+      new THREE.Mesh(new THREE.RingGeometry(0.9, 1, 48).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: '#4aa8ff', transparent: true, opacity: 0.9, depthWrite: false, toneMapped: false })),
+      new THREE.Mesh(new THREE.CircleGeometry(1, 48).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: '#2a78ff', transparent: true, opacity: 0.18, depthWrite: false, toneMapped: false })),
+    );
+    this.reticle.position.y = 0.07;
+    this.reticle.visible = false;
+    this.scene.add(this.reticle);
+    this.arrowGeo = new THREE.ConeGeometry(0.22, 0.6, 3).rotateZ(-Math.PI / 2).rotateX(-Math.PI / 2);
     this.raycaster = new THREE.Raycaster();
     this.groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
     this.resize();
@@ -339,7 +361,7 @@ export class World {
 
   pushSnapshot(snap) {
     const now = performance.now() / 1000;
-    const t = snap.tk / 30;
+    const t = snap.tk / TICK_RATE;
     const sample = now - t;
     this.offset = this.offset == null ? sample : Math.min(sample, this.offset + 0.002);
     const ents = new Map();
@@ -350,7 +372,11 @@ export class World {
       if (e.k === 'msg') this.onMessage(e);
       else this.pendingEvents.push({ t, e });
     }
-    this.myUnit = snap.me?.uid ?? null;
+    const uid = snap.me?.uid ?? null;
+    // A new warlock (each shop and each round) recentres the camera on it, as
+    // the map pans every player's camera to their warlock.
+    if (uid != null && uid !== this.myUnit) this.recentre = true;
+    this.myUnit = uid;
   }
 
   renderTime() {
@@ -558,6 +584,11 @@ export class World {
       }
     }
 
+    if (this.recentre && this.myView()) {
+      this.recentre = false;
+      this.centerOnMe();
+    }
+    this.updateMarkers(dt);
     if (this.lab) this.updateLab(dt);
     this.updateCamera(dt);
     this.fx.update(dt, this.width, this.height);
@@ -838,8 +869,8 @@ export class World {
       this.focus.x += (me.obj.position.x - this.focus.x) * Math.min(1, dt * 6);
       this.focus.z += (me.obj.position.z - this.focus.z) * Math.min(1, dt * 6);
     } else if (this.pan) {
-      this.focus.x += this.pan.x * dt * this.zoom * 0.9;
-      this.focus.z += this.pan.z * dt * this.zoom * 0.9;
+      this.focus.x += this.pan.x * dt * this.zoom * 1.2;
+      this.focus.z += this.pan.z * dt * this.zoom * 1.2;
     }
     const B = this.map?.bounds ?? 25;
     this.focus.x = Math.max(-B, Math.min(B, this.focus.x));
@@ -880,9 +911,50 @@ export class World {
     this.rangeRing.scale.set(r, 1, r);
   }
 
+  // WC3's order confirmation: green arrows around the clicked point that
+  // converge and shrink over half a second.
   moveMarker(x, z) {
-    this.fx.ring(x, z, 0.9, '#30ff30', 0.4);
-    this.fx.burst(x, 0.2, z, '#30ff30', { n: 6, speed: 1.5, size: 0.35, life: 0.3, up: 0.8, grav: 2 });
+    const g = new THREE.Group();
+    const mat = new THREE.MeshBasicMaterial({ color: '#30ff30', transparent: true, depthWrite: false, toneMapped: false });
+    for (let i = 0; i < 4; i++) {
+      const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+      const pivot = new THREE.Group();
+      pivot.rotation.y = -a;
+      const arrow = new THREE.Mesh(this.arrowGeo, mat);
+      arrow.rotation.y = Math.PI;
+      pivot.add(arrow);
+      g.add(pivot);
+    }
+    g.position.set(x, 0.12, z);
+    this.scene.add(g);
+    this.markers.push({ g, mat, t: 0 });
+  }
+
+  updateMarkers(dt) {
+    this.markers = this.markers.filter((m) => {
+      m.t += dt;
+      const k = m.t / 0.5;
+      if (k >= 1) {
+        this.scene.remove(m.g);
+        m.mat.dispose();
+        return false;
+      }
+      const r = 1.3 * (1 - k) + 0.2;
+      for (const pivot of m.g.children) {
+        pivot.children[0].position.x = r;
+        pivot.children[0].scale.setScalar(1 - k * 0.6);
+      }
+      m.mat.opacity = k < 0.7 ? 1 : 1 - (k - 0.7) / 0.3;
+      return true;
+    });
+  }
+
+  showReticle(p, r) {
+    this.reticle.visible = !!p;
+    if (!p) return;
+    this.reticle.position.x = p.x;
+    this.reticle.position.z = p.y;
+    this.reticle.scale.set(r, 1, r);
   }
 
   // ------------------------------------------------------------- events
@@ -954,6 +1026,9 @@ export class World {
         break;
       case 'sfx':
         play(e.s);
+        break;
+      case 'err':
+        this.onError?.(e.text);
         break;
     }
   }

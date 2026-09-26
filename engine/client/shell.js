@@ -20,6 +20,7 @@ export function renderShell(cfg) {
         <div id="cmdcard"></div>
       </div>
       <div id="targethint" hidden></div>
+      <div id="errmsg" hidden></div>
       <div id="labinfo" hidden></div>
       <button id="hud-menu" class="iconbtn" title="Options">⚙</button>
     </div>

@@ -42,9 +42,22 @@ export function startApp(cfg) {
     getMyId: () => state.myId,
     onChatKey: toggleChat,
     onMenu: () => ($('options').hidden = !$('options').hidden),
+    onError: showError,
   });
-  input.quickCast = store('quick') !== '0';
+  input.quickCast = store('quick') === '1'; // WC3 1.26 has no quick-cast, so it is off by default
   world.onMessage = (e) => addChat(e.text, { color: e.c, system: !e.c });
+  world.onError = showError;
+
+  // WC3's yellow error text above the console ("Spell is not ready yet.").
+  let errTimer;
+  function showError(text) {
+    const el = $('errmsg');
+    el.textContent = text;
+    el.hidden = false;
+    el.classList.remove('fade');
+    clearTimeout(errTimer);
+    errTimer = setTimeout(() => el.classList.add('fade'), 1800);
+  }
 
   function showBackdrop() {
     world.setMap(cfg.menuMap);
@@ -199,12 +212,13 @@ export function startApp(cfg) {
         state.snap = null;
         hud.reset();
         showScreen('game');
-        world.follow = true;
+        world.follow = !!cfg.followCamera;
         world.zoom = cfg.gameZoom ?? 30;
         break;
       case 'map':
         world.setMap(m.map);
-        world.follow = true;
+        world.follow = !!cfg.followCamera;
+        world.recentre = true;
         break;
       case 'snap':
         if (!state.inGame) return;

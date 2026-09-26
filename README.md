@@ -5,8 +5,8 @@
 Arcane Arena is a browser remake of **Warlock**, the classic Warcraft III custom map. Every player is a warlock on a stone platform surrounded by lava:
 
 - **Knockback kills, not spells.** Spells do little damage but knock you back, and every point of damage you take makes the next hit throw you further. The lava does the killing.
-- **Shrinking arena.** The platform shrinks as the round goes on.
-- **Rounds and shop.** The last warlock standing wins the round. Between rounds you buy and upgrade spells and items.
+- **Shrinking arena.** The platform loses a tile every 15·√alive seconds.
+- **Rounds and shop.** The last warlock standing wins the round. Kills, assists and round wins score a point each. Between rounds you buy and upgrade spells and items.
 
 ![Arcane Arena](docs/screenshot.png)
 
@@ -16,11 +16,16 @@ Arcane Arena is a browser remake of **Warlock**, the classic Warcraft III custom
 
 - **Up to 10 players online.** Peer-to-peer multiplayer with no game server: the host's browser runs the match, and friends join with a 4-letter code or an invite link.
 - **Bots** to fill the lobby or practise against.
-- **Warcraft III feel:**
-  - Right-click movement with WC3's turn rate and propulsion window: units turn before they walk, and turns become arcs.
-  - A 0.3 s cast point during which the warlock turns toward the target.
-  - The original knockback formula.
-  - For tuning: a Movement Lab overlay (F8) and host commands (`-turnrate`, `-propwindow`, `-castpoint`).
+- **Warcraft III feel, measured in the real engine** ([docs/wc3-observations.md](docs/wc3-observations.md)):
+  - The simulation runs in WC3's 0.03 s steps.
+  - Movement: the heading turns 0.6 rad per step, and the unit walks only when its heading before the step is within the 60° propulsion window. Full speed at once, and it stops dead about 11 units short of the click.
+  - The drawn model turns more slowly than the unit steers, so after an about-face the warlock slides backwards for a moment, as in WC3.
+  - Casting: the warlock turns until it faces the target exactly, the spell goes off at once, then a 0.3 s cast point locks it. A right-click during the cast point waits for it instead of cancelling. The cooldown starts after the cast point.
+  - Knockback: a hit of D damage adds D·(100+M) units/s, where M is the damage taken this round including that hit. It decays ×0.96 per step, so a Fireball slides a fresh warlock 539 units. Warlocks that collide swap velocities.
+  - The original's 100-HP scale. Lava is checked every 0.1 s.
+  - The default WC3 camera: distance 1650, 56° down. It doesn't follow you: scroll with the screen edges or arrow keys, and press Space to centre.
+  - Green order-confirmation arrows, the blue targeting reticle, and "Spell is not ready yet."
+  - For tuning: a Movement Lab overlay (F8) and host commands (`-turnrate`, `-propwindow`, `-castpoint`). `npm test` checks the engine against the measured numbers.
 - **Spells:**
   - Fireball and Scourge;
   - one spell per shop column: Lightning, Homing, Boomerang, Teleport, Thrust, Swap, Drain, Bouncer, Meteor, Windwalk, Shield, Rush, Gravity, Link;
@@ -55,11 +60,12 @@ server/   warlock.js: rules, spells, knockback, lava, shop, bots
 shared/   warlockData.js: spell and item tables (used by server and client)
 engine/   shared engine (also used by Hammerguy's Party):
           sim, rooms, networking, renderer, input, HUD base
-docs/     research.md: findings from the original Warlock 1.02 map
+docs/     research.md: findings from the original Warlock 1.02 map (rules, spells, economy)
           wc3-observations.md: measured behaviour from real WC3, via wc3-instrumentation/
+          (engine: movement, casting, knockback, camera)
 ```
 
-**Networking.** The simulation runs at 30 Hz on the host, and snapshots go out at 15 Hz. Clients send only orders and interpolate between snapshots.
+**Networking.** The simulation runs in WC3's 0.03 s steps (33.3 Hz) on the host, and snapshots go out every other step. Clients send only orders and interpolate between snapshots.
 
 - **Peer-to-peer (default):** the host's browser runs the room in a Web Worker, and guests connect over WebRTC via [PeerJS](https://peerjs.com). The public PeerJS server only introduces players. To use your own, build with `VITE_PEER_HOST` and related variables.
 - **Dedicated:** `server.js` runs the same room code behind a WebSocket.

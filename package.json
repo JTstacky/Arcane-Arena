@@ -1,6 +1,6 @@
 {
   "name": "arcane-arena",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "Knock rival warlocks into the lava: a browser remake of the classic Warcraft III custom map Warlock, with peer-to-peer multiplayer",
   "type": "module",

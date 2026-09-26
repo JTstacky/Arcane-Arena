@@ -1,5 +1,6 @@
-// Warcraft III-style controls: right-click to move, hotkey + left-click to
-// cast (or quick-cast at the cursor), S to stop, Space to centre the camera.
+// Warcraft III controls: right-click to move, hotkey then left-click to cast
+// (or quick-cast at the cursor, an option), S to stop, Space to centre the
+// camera, screen edges and arrow keys to scroll it.
 
 import { toggleMute, unlockAudio, play } from './audio.js';
 
@@ -10,7 +11,8 @@ import { toggleMute, unlockAudio, play } from './audio.js';
 //     { target: spell, name, range } (cast at a point: quick-cast or targeting)
 
 export class Input {
-  constructor({ world, send, getSnap, getMyId, onChatKey, onMenu, slots }) {
+  constructor({ world, send, getSnap, getMyId, onChatKey, onMenu, onError, slots }) {
+    this.onError = onError || (() => {});
     this.world = world;
     this.slots = slots;
     this.send = send;
@@ -37,7 +39,7 @@ export class Input {
     });
     canvas.addEventListener('wheel', (e) => {
       e.preventDefault();
-      world.zoom = Math.max(14, Math.min(64, world.zoom + Math.sign(e.deltaY) * 3));
+      world.zoom = Math.max(20, Math.min(45, world.zoom + Math.sign(e.deltaY) * 2));
     }, { passive: false });
     window.addEventListener('keydown', (e) => this.keyDown(e));
     window.addEventListener('keyup', (e) => this.keysDown.delete(e.code));
@@ -75,9 +77,10 @@ export class Input {
     }
   }
 
-  castAt(spell, p) {
+  castAt(spell, p, marker = true) {
     this.holdPause = performance.now() + 450;
     this.send({ t: 'cmd', c: 'cast', spell, x: +p.x.toFixed(2), y: +p.y.toFixed(2) });
+    if (marker) this.world.moveMarker(p.x, p.y);
   }
 
   // Called for hotkeys and command-card clicks.
@@ -87,11 +90,14 @@ export class Input {
     if (!snap || !this.active) return;
     const a = this.slots.action(i, snap, this.getMyId());
     if (!a) return;
-    if (a.error) return play('error');
+    if (a.error) {
+      play('error');
+      return this.onError('Spell is not ready yet.');
+    }
     if (a.send) return this.send(a.send);
     if (a.self) {
       const unit = this.world.myView();
-      return this.castAt(a.self, unit ? { x: unit.x, y: unit.z } : { x: 0, y: 0 });
+      return this.castAt(a.self, unit ? { x: unit.x, y: unit.z } : { x: 0, y: 0 }, false);
     }
     if (this.quickCast) {
       const p = this.ground();
@@ -104,6 +110,7 @@ export class Input {
     hint.hidden = false;
     hint.textContent = `${a.name}: left-click a target (right-click to cancel)`;
     this.range = a.range ?? null;
+    this.aoe = a.aoe ?? 1.5;
   }
 
   cancelTarget() {
@@ -112,6 +119,7 @@ export class Input {
     document.body.classList.remove('targeting');
     document.getElementById('targethint').hidden = true;
     this.world.showRange(null);
+    this.world.showReticle(null);
   }
 
   keyDown(e) {
@@ -182,6 +190,9 @@ export class Input {
     }
     if (px || pz) w.follow = false;
     w.pan = px || pz ? { x: px, z: pz } : null;
-    if (this.targeting) w.showRange(this.range);
+    if (this.targeting) {
+      w.showRange(this.range);
+      w.showReticle(this.ground(), this.aoe);
+    }
   }
 }

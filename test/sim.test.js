@@ -16,7 +16,7 @@ function fakeRoom(n) {
 }
 
 function run(game, maxSeconds) {
-  const dt = 1 / 30;
+  const dt = 0.03;
   const phases = new Set();
   for (let t = 0; t < maxSeconds && !game.over; t += dt) {
     game.tick(dt);

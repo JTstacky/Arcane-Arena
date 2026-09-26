@@ -1,10 +1,10 @@
 // Shared constants used by both the server simulation and the browser client.
 
-// Warcraft III custom maps typically drove their physics ("knockback systems")
-// from periodic triggers firing every 0.03s (~33 Hz). We run the authoritative
-// simulation at a comparable 30 Hz and send snapshots at 15 Hz; the client
-// interpolates between them.
-export const TICK_RATE = 30;
+// Warcraft III custom maps drove their physics ("knockback systems") from a
+// periodic trigger firing every 0.03 s, and the engine turns units in 0.03 s
+// steps too. The authoritative simulation runs at exactly that step (33.3 Hz)
+// and sends snapshots every other step; the client interpolates between them.
+export const TICK_RATE = 100 / 3;
 export const SNAPSHOT_EVERY = 2;
 export const MAX_PLAYERS = 10;
 

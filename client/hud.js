@@ -51,23 +51,24 @@ export class ArcaneHud extends HudBase {
     const phaseText = { shop: 'Shopping', play: 'Fight!', roundEnd: 'Round over', over: 'Game over' }[s.phase];
     const timer = s.phase === 'play' || s.phase === 'shop' ? fmtTime(s.timer) : '';
     this.set('topbar', `
-      <div class="tb-left">Round <b>${Math.max(1, s.round + (s.phase === 'shop' ? 1 : 0))}</b> / ${s.rounds}</div>
+      <div class="tb-left">Round: <b>${Math.max(1, s.round + (s.phase === 'shop' ? 1 : 0))}</b>/${s.rounds}</div>
       <div class="tb-mid"><span class="phase">${phaseText}</span> <span class="clock">${timer}</span></div>
       <div class="tb-right">${me ? `<span class="gold" data-tip="text:${encodeURIComponent('Gold. You get more every round.')}">🪙 ${me.g}</span>` : ''}<span class="lava" data-tip="text:${encodeURIComponent('Lava damage per second')}">🔥 ${s.arena.lava}/s</span></div>`);
 
     const alive = {};
     for (const e of s.ents) if (e.k === 'warlock') alive[e.o] = !e.dead;
     const rows = Object.entries(s.players).sort((a, b) => b[1].sc - a[1].sc || b[1].d - a[1].d);
-    this.set('multiboard', `<div class="mb-title">Arcane Arena</div><table>
-      <tr><th></th><th>Player</th><th title="Kills">K</th><th title="Damage dealt">Dmg</th><th title="Rounds won">Score</th></tr>
+    // The map's multiboard: Damage (one decimal), K.O.'s and Points.
+    this.set('multiboard', `<div class="mb-title">Round: ${Math.max(1, s.round)}/${s.rounds}</div><table>
+      <tr><th></th><th>Player</th><th title="Damage dealt">Damage</th><th title="Kills">K.O.'s</th><th title="A kill, an assist and a round win are worth a point each">Points</th></tr>
       ${rows.map(([id, p]) => {
         const r = this.playerRow(id);
-        return `<tr class="${alive[id] === false ? 'dead' : ''} ${+id === this.myId() ? 'me' : ''}"><td><i class="sw" style="background:${r.color}"></i></td><td style="color:${r.color}">${r.name}${r.connected === false ? ' ⚠' : ''}</td><td>${p.k}</td><td>${p.d}</td><td><b>${p.sc}</b></td></tr>`;
+        return `<tr class="${alive[id] === false ? 'dead' : ''} ${+id === this.myId() ? 'me' : ''}"><td><i class="sw" style="background:${r.color}"></i></td><td style="color:${r.color}">${r.name}${r.connected === false ? ' ⚠' : ''}</td><td>${(+p.d).toFixed(1)}</td><td>${p.k}</td><td><b>${p.sc}</b></td></tr>`;
       }).join('')}</table>`);
 
     if (me) this.updateConsole(s, me);
     this.updateShop(s, me);
-    this.setCenter(s.phase === 'over' && s.standings ? this.overCard(s.standings, 'rounds', (st) => `<td>${st.kills} kills · ${st.dmg} dmg</td>`) : '');
+    this.setCenter(s.phase === 'over' && s.standings ? this.overCard(s.standings, 'points', (st) => `<td>${st.wins} rounds · ${st.kills} kills · ${st.assists} assists · ${st.dmg.toFixed(1)} dmg</td>`) : '');
   }
 
   updateConsole(s, me) {
@@ -84,7 +85,7 @@ export class ArcaneHud extends HudBase {
     }
     this.set('cmdcard', cells.join(''));
     const myUnit = s.ents.find((e) => e.k === 'warlock' && e.o === this.myId());
-    const hp = myUnit ? `${myUnit.hp} / ${myUnit.mhp}` : '';
+    const hp = myUnit ? `${Math.ceil(myUnit.hp)} / ${myUnit.mhp}` : '';
     const kp = myUnit?.kp ?? 0;
     const frac = myUnit ? myUnit.hp / myUnit.mhp : 0;
     const inv = [];
@@ -98,7 +99,7 @@ export class ArcaneHud extends HudBase {
       <div class="portrait" style="--c:${r.color}">🧙</div>
       <div class="uinfo"><div class="uname2" style="color:${r.color}">${r.name}</div><div class="utitle">Warlock</div>
         <div class="bighp"><div style="width:${frac * 100}%;background:${hpColor(frac)}"></div><span>${hp}</span></div>
-        <div class="kbline" data-tip="text:${encodeURIComponent('<div class=tt-title>Knockback points</div><div class=tt-desc>Every point of damage you take this round makes you fly further. Lava adds half its damage.</div>')}">Knockback <b>+${Math.round(kp / 10)}%</b></div></div>
+        <div class="kbline" data-tip="text:${encodeURIComponent('<div class=tt-title>Damage taken</div><div class=tt-desc>The original shows this on the mana bar. A hit of D damage pushes you with D × (100 + damage taken), so every point you take this round makes you fly 1% further. Lava adds half its damage.</div>')}">Damage taken <b>${(+kp).toFixed(1)}</b> · knockback <b>+${Math.round(kp)}%</b></div></div>
       <div class="inventory">${inv.join('')}</div>`);
   }
 

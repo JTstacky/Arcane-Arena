@@ -175,6 +175,8 @@ body.inlobby #chat { bottom: 12px; }
 .cmd.cooling .icon { filter: grayscale(1) brightness(0.6); }
 .cdsweep { position: absolute; inset: 0; background: conic-gradient(rgba(0, 0, 0, 0.65) var(--p), transparent 0); }
 .cdnum { position: absolute; inset: 0; display: grid; place-items: center; font-weight: 800; font-size: 20px; text-shadow: 0 0 4px #000, 0 0 2px #000; }
+#errmsg { position: absolute; bottom: 190px; left: 50%; transform: translateX(-50%); color: #ffd400; font-size: 17px; text-shadow: 0 0 3px #000, 1px 1px 0 #000; pointer-events: none; transition: opacity 0.6s; white-space: nowrap; }
+#errmsg.fade { opacity: 0; }
 #targethint { position: absolute; bottom: 150px; left: 50%; transform: translateX(-50%); background: rgba(0, 0, 0, 0.7); padding: 6px 14px; border-radius: 6px; color: var(--gold); pointer-events: none; }
 
 /* unit bars & floating text */

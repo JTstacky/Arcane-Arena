@@ -1,18 +1,20 @@
 // Warlock — a remake of the classic Warcraft III custom map.
 //
 // Every player controls a warlock on a platform surrounded by lava. Spells
-// deal damage, and every point of damage you take also adds "knockback
-// points": the more you've been hurt this round, the further you fly — so
-// the lava, not the spells, is what kills. The platform shrinks one layer
-// every 10 seconds. Last warlock standing wins the round (+1 score); between
-// rounds everyone gets gold for the shop.
+// deal little damage, but every point of damage you take this round (shown
+// on the original's mana bar) makes the next hit throw you further, so the
+// lava, not the spells, is what kills. The platform loses a tile every
+// 15·√alive seconds. Last warlock standing wins the round; kills, assists and
+// round wins are worth a point each. Between rounds everyone gets gold for
+// the shop.
 //
-// Rules and numbers follow Warlock Brawl, the official port of the original
-// map by its author (see shared/warlockData.js).
+// The simulation runs in the WC3 engine's 0.03 s steps. Movement, casting and
+// knockback follow what was measured in the real game (docs/wc3-observations.md);
+// the rules and numbers follow Warlock v1.02 (see shared/warlockData.js).
 
-import { SPELLS, ITEMS, WARLOCK, MAX_ITEMS, stat, itemStat, upgradeCost } from '../shared/warlockData.js';
+import { SPELLS, ITEMS, WARLOCK, UNIT, MAX_ITEMS, stat, itemStat, upgradeCost } from '../shared/warlockData.js';
 import {
-  Unit, newId, stepUnits, collideUnits, dist, clamp, rand, pick, round1, round2, unitSnap,
+  Unit, newId, stepUnits, collideUnits, dist, clamp, rand, pick, round1, round2, unitSnap, wrapAngle,
 } from '../engine/server/sim.js';
 
 const SELF_CAST = new Set(['shield', 'rush', 'windwalk', 'scourge']);
@@ -39,7 +41,9 @@ export class WarlockGame {
         id: p.id,
         gold: WARLOCK.startGold,
         score: 0,
+        wins: 0,
         kills: 0,
+        assists: 0,
         deaths: 0,
         dmg: 0,
         roundDmg: 0,
@@ -52,12 +56,14 @@ export class WarlockGame {
         unit: null,
         lastAttacker: null,
         lastHitAt: -99,
+        hitBy: new Map(), // attacker id -> time of their last hit this round (assists)
         bot: p.bot ? { think: 0, castLock: 0, strafe: Math.random() < 0.5 ? 1 : -1, shopAt: 0, style: pick(['aggro', 'mobile', 'control']) } : null,
       });
     }
-    this.layers = WARLOCK.baseLayers + this.ps.size * WARLOCK.layersPerPlayer;
-    this.baseArena = this.layers * WARLOCK.layer;
+    this.tiles = WARLOCK.baseTiles + Math.floor(Math.sqrt(this.ps.size));
+    this.baseArena = this.tiles * WARLOCK.tile;
     this.arenaR = this.baseArena;
+    this.lavaT = 0;
     this.mapInfo = { v: 1, theme: 'lava', floor: { shape: 'disc', r: this.baseArena }, bounds: this.baseArena + 8 };
     this.enterShop();
   }
@@ -66,7 +72,7 @@ export class WarlockGame {
 
   enterShop() {
     this.phase = 'shop';
-    this.timer = WARLOCK.shopTime;
+    this.timer = this.round === 0 ? WARLOCK.firstShopTime : WARLOCK.shopTime;
     this.projectiles = [];
     this.meteors = [];
     this.links = [];
@@ -82,6 +88,8 @@ export class WarlockGame {
     this.round++;
     this.phase = 'play';
     this.roundTime = 0;
+    this.shrinkT = 0;
+    this.lavaT = 0;
     this.arenaR = this.baseArena;
     this.projectiles = [];
     this.meteors = [];
@@ -89,6 +97,7 @@ export class WarlockGame {
     for (const s of this.ps.values()) {
       s.roundDmg = 0;
       s.cds = {};
+      s.hitBy.clear();
     }
     this.spawnWarlocks(false);
     this.placeObstacles();
@@ -104,19 +113,22 @@ export class WarlockGame {
     if (alive.length === 1) {
       const w = alive[0];
       w.score++;
-      this.msg(`${this.name(w.id)} wins round ${this.round}!`, this.room.colorOf(w.id));
+      w.wins++;
+      this.msg(`${this.name(w.id)} wins round ${this.round}! (+1 point)`, this.room.colorOf(w.id));
       this.ev({ k: 'sfx', s: 'win' });
     } else {
       this.msg(`Round ${this.round} is a draw!`);
     }
     const top = [...this.ps.values()].sort((a, b) => b.roundDmg - a.roundDmg)[0];
-    if (top && top.roundDmg > 0) this.msg(`Damage leader: ${this.name(top.id)} (${Math.round(top.roundDmg)})`, this.room.colorOf(top.id));
+    if (top && top.roundDmg > 0) this.msg(`Damage leader: ${this.name(top.id)} (${top.roundDmg.toFixed(1)})`, this.room.colorOf(top.id));
     for (const s of this.ps.values()) s.gold += WARLOCK.goldPerRound;
   }
 
   spawnWarlocks(preview) {
+    // As in the map: evenly around a circle of 768 + 64·n units from a random
+    // start angle, everyone facing the centre.
     const list = [...this.ps.values()];
-    const R = Math.max(this.baseArena * 0.45, this.baseArena - WARLOCK.spawnInset);
+    const R = Math.min(this.baseArena - 2 * WARLOCK.tile, WARLOCK.spawnBase + WARLOCK.spawnPerPlayer * list.length);
     const off = Math.random() * Math.PI * 2;
     this.spawnPoints = [];
     list.forEach((s, i) => {
@@ -125,9 +137,11 @@ export class WarlockGame {
       const y = Math.sin(a) * R;
       this.spawnPoints.push([x, y]);
       const u = new Unit({ kind: 'warlock', owner: s.id, x, y, r: WARLOCK.radius, hp: this.maxHpOf(s) });
-      u.facing = a + Math.PI;
+      u.setFacing(a + Math.PI);
       u.kbPoints = 0;
-      u.buffs = { shield: 0, invis: 0, dash: null, absorb: 0, absorbT: 0, slow: 0, invuln: preview ? 0 : WARLOCK.invulnTime };
+      u.casting = null;
+      u.queued = null;
+      u.buffs = { shield: 0, invis: 0, dash: null, absorb: 0, absorbT: 0, slow: 0, invuln: 0 };
       this.applyStats(s, u);
       if (preview) u.stun = 999;
       s.unit = u;
@@ -161,12 +175,12 @@ export class WarlockGame {
     this.updateSpeed(u);
   }
 
+  // WC3 speed modifiers are flat: Drain takes 50 off, Windwalk adds 200.
   updateSpeed(u) {
-    let m = 1;
-    if (u.buffs.slow > 0) m *= 1 - SPELLS.drain.slow;
-    u.speedMult = m;
-    u.speedBonus = u.buffs.invis > 0 ? u.buffs.invisBonus : 0;
-    u.speedMult = m * (1 + (u.speedBonus || 0) / u.speed);
+    let delta = 0;
+    if (u.buffs.slow > 0) delta -= SPELLS.drain.slow;
+    if (u.buffs.invis > 0) delta += u.buffs.invisBonus;
+    u.speedMult = Math.max(0.2, (u.speed + delta) / u.speed);
   }
 
   // --------------------------------------------------------------- commands
@@ -177,18 +191,19 @@ export class WarlockGame {
     const u = s.unit;
     switch (m.c) {
       case 'move':
-        // A new order during the cast point cancels the spell, as in WC3.
-        if (this.phase === 'play' && u?.alive && !u.buffs.dash) {
+      case 'stop': {
+        if (this.phase !== 'play' || !u?.alive) break;
+        const order = m.c === 'move' ? { c: 'move', x: +m.x || 0, y: +m.y || 0 } : { c: 'stop' };
+        // Measured in WC3: an order given during the cast point waits for it
+        // to end instead of cancelling the spell. Before the cast has begun
+        // (while still turning), a new order replaces the spell.
+        if (u.casting?.lock || u.buffs.dash) u.queued = order;
+        else {
           u.casting = null;
-          u.order(+m.x || 0, +m.y || 0);
+          this.doOrder(u, order);
         }
         break;
-      case 'stop':
-        if (u) {
-          u.casting = null;
-          u.stop();
-        }
-        break;
+      }
       case 'cast':
         if (this.phase === 'play') this.cast(s, m.spell, +m.x || 0, +m.y || 0);
         break;
@@ -250,27 +265,81 @@ export class WarlockGame {
     }
   }
 
-  // Starts casting. Like WC3, the caster stops, turns toward the target and
-  // the spell goes off after its cast point (0.2 s for most spells, 0 for
-  // blinks and self-buffs). Cooldown starts when the effect happens.
+  doOrder(u, o) {
+    if (o.c === 'move') u.order(o.x, o.y);
+    else u.stop();
+  }
+
+  // Casting, as measured in WC3 (Warlock 0.99, the warlock's 0.3 s cast point):
+  //  1. The caster stops and turns toward the target at its turn rate, with
+  //     no propulsion window: the cast begins only on the step after the
+  //     heading is exactly on target (at once if already facing it).
+  //  2. "Begins casting": the map launches the spell right here.
+  //  3. Then the 0.3 s cast point, during which the warlock is locked. Orders
+  //     given now wait for it to end. Cooldown starts when it ends.
   cast(s, id, tx, ty) {
     const u = s.unit;
     const def = SPELLS[id];
     const lvl = s.spells[id];
-    if (!def || !lvl || !u?.alive || u.stun > 0 || u.buffs.dash) return;
-    if ((s.cds[id] || 0) > 0) return;
-    const cp = this.room.tuning?.castPoint ?? def.castPoint ?? 0.2;
+    if (!def || !lvl || !u?.alive || u.stun > 0) return;
+    if (u.casting?.lock || u.buffs.dash) {
+      u.queued = { c: 'cast', id, tx, ty };
+      return;
+    }
+    if ((s.cds[id] || 0) > 0) return this.notReady(s);
     u.target = null;
-    if (!SELF_CAST.has(id)) u.faceTo = Math.atan2(ty - u.y, tx - u.x);
-    if (cp <= 0) return this.execCast(s, id, tx, ty);
-    u.casting = { id, tx, ty, t: cp };
+    u.queued = null;
+    u.casting = { id, tx, ty, lock: 0 };
+    if (SELF_CAST.has(id) || Math.abs(wrapAngle(Math.atan2(ty - u.y, tx - u.x) - u.heading)) < 1e-3) this.beginCast(s);
+  }
+
+  notReady(s) {
+    this.ev({ k: 'err', text: 'Spell is not ready yet.', to: s.id });
+  }
+
+  // One 0.03 s step of the cast sequence.
+  stepCast(s, dt) {
+    const u = s.unit;
+    const c = u.casting;
+    if (c.lock > 0) {
+      c.lock -= dt;
+      if (c.lock <= 1e-6) {
+        u.casting = null;
+        const lvl = s.spells[c.id];
+        if (lvl) s.cds[c.id] = stat(SPELLS[c.id], 'cd', lvl);
+        const q = u.queued;
+        u.queued = null;
+        if (q?.c === 'cast') this.cast(s, q.id, q.tx, q.ty);
+        else if (q) this.doOrder(u, q);
+      }
+      return;
+    }
+    const want = Math.atan2(c.ty - u.y, c.tx - u.x);
+    if (Math.abs(wrapAngle(want - u.heading)) < 1e-3) this.beginCast(s);
+    else u.turnStep(want, dt);
+  }
+
+  beginCast(s) {
+    const u = s.unit;
+    const c = u.casting;
+    if ((s.cds[c.id] || 0) > 0) {
+      u.casting = null;
+      return this.notReady(s);
+    }
+    c.lock = this.room.tuning?.castPoint ?? WARLOCK.castPoint;
+    this.execCast(s, c.id, c.tx, c.ty);
+    if (c.lock <= 0) {
+      c.lock = 1e-9;
+      this.stepCast(s, 0);
+    }
   }
 
   execCast(s, id, tx, ty) {
     const u = s.unit;
     const def = SPELLS[id];
     const lvl = s.spells[id];
-    if (!def || !lvl || !u?.alive || (s.cds[id] || 0) > 0) return;
+    if (!def || !lvl || !u?.alive) return;
+    // Blocks re-casting until the cooldown proper starts after the cast point.
     s.cds[id] = stat(def, 'cd', lvl);
     if (id !== 'windwalk' && u.buffs.invis > 0) this.endWindwalk(u);
     let dx = tx - u.x;
@@ -284,7 +353,8 @@ export class WarlockGame {
       const life = def.life ? stat(def, 'life', lvl) : range / speed;
       const p = {
         id: newId(), kind: id, owner: s.id, level: lvl,
-        x: u.x + dx * (u.r + 0.4), y: u.y + dy * (u.r + 0.4),
+        // The map creates projectiles at the caster's centre.
+        x: u.x, y: u.y,
         vx: dx * speed, vy: dy * speed, speed,
         r: stat(def, 'radius', lvl), life, age: 0, hit: new Set(), ...extra,
       };
@@ -352,7 +422,7 @@ export class WarlockGame {
           const fb = best.fireball;
           fb.dead = true;
           const area = 225 / 50;
-          const dmgMax = (2 / 3) * (stat(def, 'dmg', lvl) + 70);
+          const dmgMax = (2 / 3) * (stat(def, 'dmg', lvl) + 7);
           this.areaDamage(fb.x, fb.y, area, dmgMax, dmgMax * 0.5, s, 1.35, null);
           this.ev({ k: 'boom', x: round1(fb.x), y: round1(fb.y), r: area, c: '#ffcf6a', big: 1 });
         }
@@ -373,6 +443,8 @@ export class WarlockGame {
         u.x += dx * md;
         u.y += dy * md;
         u.target = null;
+        u.vx *= def.kbCut;
+        u.vy *= def.kbCut;
         this.ev({ k: 'tele', x1: round1(x0), y1: round1(y0), x2: round1(u.x), y2: round1(u.y) });
         break;
       }
@@ -383,7 +455,7 @@ export class WarlockGame {
         break;
       }
       case 'shield':
-        u.buffs.shield = def.duration;
+        u.buffs.shield = stat(def, 'duration', lvl);
         u.buffs.shieldR = stat(def, 'aoe', lvl);
         break;
       case 'rush':
@@ -404,9 +476,11 @@ export class WarlockGame {
     this.updateSpeed(u);
   }
 
-  // Deals damage the Warlock way: damage adds knockback points, and the
-  // knockback velocity scales with them.
-  //   kb = factor * effDmg * 10 * (1 + kbPoints / 1000),  effDmg = dmg <= 100 ? dmg : sqrt(100 * dmg)
+  // Deals damage the Warlock way (measured in the 0.99 engine log): the
+  // damage is first added to the victim's damage taken M (kbPoints), then the
+  // hit adds a knockback velocity of D·(100 + M) units per second away from
+  // the source. With 0.96 friction per 0.03 s step the slide is
+  // 0.72·D·(100 + M) units.
   damage(target, amount, src, nx = 0, ny = 0, kbFactor = 1, kbVuln = 1) {
     const u = target.unit;
     if (!u?.alive || amount <= 0) return;
@@ -425,15 +499,15 @@ export class WarlockGame {
     if (src && src.id !== target.id) {
       target.lastAttacker = src.id;
       target.lastHitAt = this.time;
+      target.hitBy.set(src.id, this.time);
       src.dmg += amount;
       src.roundDmg += amount;
     }
     if (kbFactor > 0 && (nx || ny)) {
-      const eff = amount > 100 ? Math.sqrt(100 * amount) : amount;
-      const v = kbFactor * eff * WARLOCK.kbDmgToVelocity * (1 + u.kbPoints / 1000);
+      const v = kbFactor * amount * (WARLOCK.kbBase + u.kbPoints) * UNIT;
       u.knock(nx, ny, v);
     }
-    if (kbVuln === 1) this.ev({ k: 'dmg', x: round1(u.x), y: round1(u.y), n: Math.round(amount) });
+    if (kbVuln === 1) this.ev({ k: 'dmg', x: round1(u.x), y: round1(u.y), n: round1(amount) });
   }
 
   areaDamage(x, y, r, dmgMax, dmgMin, src, kbFactor, exclude) {
@@ -474,12 +548,23 @@ export class WarlockGame {
     // play
     this.roundTime += dt;
     this.timer = this.roundTime;
-    // The platform loses one layer every 10 seconds (smoothly animated) until
-    // nothing is left, so every round is guaranteed to end.
-    this.arenaR = Math.max(0, this.baseArena - (this.roundTime / WARLOCK.shrinkPeriod) * WARLOCK.layer);
+    // The platform loses a whole tile every 15·√alive seconds until nothing
+    // is left, so every round is guaranteed to end. WC3 re-lays terrain
+    // tiles instantly, so the edge jumps rather than shrinking smoothly.
+    const aliveNow = [...this.ps.values()].filter((s) => s.unit?.alive).length;
+    this.shrinkT += dt;
+    if (this.shrinkT >= WARLOCK.shrinkPeriod * Math.sqrt(Math.max(1, aliveNow)) && this.arenaR > 0) {
+      this.shrinkT = 0;
+      this.arenaR = Math.max(0, this.arenaR - WARLOCK.tile);
+    }
 
     for (const s of this.ps.values()) {
-      for (const k in s.cds) s.cds[k] = Math.max(0, s.cds[k] - dt);
+      const casting = s.unit?.casting;
+      for (const k in s.cds) {
+        // The cooldown only starts once the cast point is over.
+        if (casting?.lock > 0 && casting.id === k) continue;
+        s.cds[k] = Math.max(0, s.cds[k] - dt);
+      }
       if (s.bot && s.unit?.alive) this.botThink(s, dt);
     }
     this.stepWorld(dt, true);
@@ -503,15 +588,7 @@ export class WarlockGame {
       const u = s.unit;
       if (!u?.alive) continue;
       const b = u.buffs;
-      if (u.casting) {
-        u.casting.t -= dt;
-        if (!SELF_CAST.has(u.casting.id)) u.faceTo = Math.atan2(u.casting.ty - u.y, u.casting.tx - u.x);
-        if (u.casting.t <= 0) {
-          const c = u.casting;
-          u.casting = null;
-          this.execCast(s, c.id, c.tx, c.ty);
-        }
-      }
+      if (u.casting) this.stepCast(s, dt);
       if (b.invuln > 0) b.invuln -= dt;
       if (b.shield > 0) b.shield -= dt;
       if (b.absorbT > 0) {
@@ -542,7 +619,7 @@ export class WarlockGame {
       if (b.dash) {
         u.x += b.dash.vx * dt;
         u.y += b.dash.vy * dt;
-        u.facing = Math.atan2(b.dash.vy, b.dash.vx);
+        u.setFacing(Math.atan2(b.dash.vy, b.dash.vx));
         b.dash.t -= dt;
         for (const o of this.ps.values()) {
           const v = o.unit;
@@ -554,7 +631,13 @@ export class WarlockGame {
             break;
           }
         }
-        if (b.dash.t <= 0) b.dash = null;
+        if (b.dash.t <= 0) {
+          b.dash = null;
+          const q = u.queued;
+          u.queued = null;
+          if (q?.c === 'cast') this.cast(s, q.id, q.tx, q.ty);
+          else if (q) this.doOrder(u, q);
+        }
       }
       if (u.hp < u.maxHp) u.hp = Math.min(u.maxHp, u.hp + u.regen * dt);
     }
@@ -580,8 +663,15 @@ export class WarlockGame {
     }
     this.links = this.links.filter((l) => !l.dead);
 
-    stepUnits(units, dt, { friction: WARLOCK.friction, linear: 0.25, controlLoss: false });
-    collideUnits(units);
+    stepUnits(units, dt, { friction: WARLOCK.friction, controlLoss: false });
+    // Warlocks that run into each other swap knockback velocities, unless
+    // they are linked together.
+    const linked = (a, b) => this.links.some((l) => {
+      const ua = this.ps.get(l.a)?.unit;
+      const ub = this.ps.get(l.b)?.unit;
+      return (ua === a && ub === b) || (ua === b && ub === a);
+    });
+    collideUnits(units, { swap: true, skip: linked });
     for (const u of units) {
       if (!u.alive) continue;
       for (const o of this.obstacles) {
@@ -603,14 +693,18 @@ export class WarlockGame {
     this.stepProjectiles(dt);
     this.stepMeteors(dt);
 
-    // Lava: 100 dps, adds half its damage as knockback points.
+    // Lava: the map tests the tile under each warlock every 0.1 s, so a
+    // warlock walking in takes its first burn a moment after crossing the
+    // edge. It adds half its damage to the damage taken.
+    this.lavaT += dt;
+    const lavaTick = lava && this.lavaT >= WARLOCK.lavaTick - 1e-6;
+    if (lavaTick) this.lavaT -= WARLOCK.lavaTick;
     for (const s of this.ps.values()) {
       const u = s.unit;
       if (!u?.alive) continue;
-      const inLava = Math.hypot(u.x, u.y) > this.arenaR;
-      u.flags.burn = inLava;
-      if (inLava && lava && !(u.buffs.invuln > 0)) {
-        const amt = WARLOCK.lavaDps * dt;
+      if (lavaTick || !lava) u.flags.burn = Math.hypot(u.x, u.y) > this.arenaR;
+      if (lavaTick && u.flags.burn && !(u.buffs.invuln > 0)) {
+        const amt = WARLOCK.lavaDps * WARLOCK.lavaTick;
         u.hp -= amt;
         u.kbPoints += amt * WARLOCK.lavaKbFactor;
       }
@@ -627,8 +721,17 @@ export class WarlockGame {
     let killer = null;
     if (s.lastAttacker != null && this.time - s.lastHitAt < KILL_CREDIT_WINDOW) killer = this.ps.get(s.lastAttacker);
     if (killer && killer !== s) {
+      // A kill and each assist (anyone else who hit the victim recently) are
+      // worth a point.
       killer.kills++;
+      killer.score++;
       this.msg(`${this.name(killer.id)} killed ${this.name(s.id)}!`, this.room.colorOf(killer.id));
+      for (const [aid, t] of s.hitBy) {
+        const a = this.ps.get(aid);
+        if (!a || a === killer || this.time - t >= KILL_CREDIT_WINDOW) continue;
+        a.assists++;
+        a.score++;
+      }
     } else {
       this.msg(`${this.name(s.id)} was consumed by the lava.`, this.room.colorOf(s.id));
     }
@@ -799,7 +902,7 @@ export class WarlockGame {
     const l = Math.hypot(p.vx, p.vy) || 1;
     const dx = p.vx / l;
     const dy = p.vy / l;
-    const dmg = def.dmg ? stat(def, 'dmg', p.level) : 0;
+    const dmg = def.dmg ? stat(def, 'dmg', p.level) * (p.dmgMult ?? 1) : 0;
     p.hit.add(s.id);
     switch (p.kind) {
       case 'boomerang':
@@ -819,6 +922,7 @@ export class WarlockGame {
         }
         if (next && p.bounces > 0) {
           p.bounces--;
+          p.dmgMult = (p.dmgMult ?? 1) * def.bounceLoss;
           const nx = next.x - p.x;
           const ny = next.y - p.y;
           const nl = Math.hypot(nx, ny) || 1;
@@ -874,7 +978,7 @@ export class WarlockGame {
       const def = SPELLS.meteor;
       const owner = this.ps.get(m.owner);
       this.ev({ k: 'boom', x: round1(m.x), y: round1(m.y), r: m.aoe, c: def.color, big: 1 });
-      this.areaDamage(m.x, m.y, m.aoe, stat(def, 'dmg', m.level), def.dmgMin, owner, 1, null);
+      this.areaDamage(m.x, m.y, m.aoe, stat(def, 'dmg', m.level), stat(def, 'dmgMin', m.level), owner, 1, null);
       // Meteors also smash projectiles in the impact area.
       for (const p of this.projectiles) if (dist(p.x, p.y, m.x, m.y) < m.aoe) p.dead = true;
     }
@@ -891,7 +995,7 @@ export class WarlockGame {
 
   standings() {
     return [...this.ps.values()]
-      .map((s) => ({ id: s.id, score: s.score, wins: s.score, kills: s.kills, dmg: Math.round(s.dmg) }))
+      .map((s) => ({ id: s.id, score: s.score, wins: s.wins, kills: s.kills, assists: s.assists, dmg: round1(s.dmg) }))
       .sort((a, b) => b.score - a.score || b.dmg - a.dmg);
   }
 
@@ -1008,7 +1112,7 @@ export class WarlockGame {
     if (ready('gravity') && td < 14) options.push(['gravity', target.x, target.y]);
     if (ready('link') && td < S.link.range) options.push(['link', ...lead(S.link.speed)]);
     if (ready('swap') && td < S.swap.range && !tNearLava && d0 > R - 5) options.push(['swap', ...lead(S.swap.speed)]);
-    if (ready('scourge') && td < S.scourge.aoe && u.hp > 300) options.push(['scourge', u.x, u.y]);
+    if (ready('scourge') && td < S.scourge.aoe && u.hp > 30) options.push(['scourge', u.x, u.y]);
     if (ready('windwalk') && Math.random() < 0.08) options.push(['windwalk', u.x, u.y]);
     if (!options.length || Math.random() < 0.35) return;
     const [id, x, y] = pick(options);
@@ -1026,7 +1130,7 @@ export class WarlockGame {
       const invis = u.buffs.invis > 0;
       if (invis && s.id !== pid && u.alive) continue;
       const fx = [];
-      const extra = { kp: Math.round(u.kbPoints) };
+      const extra = { kp: round1(u.kbPoints) };
       if (u.buffs.shield > 0) {
         fx.push('shield');
         extra.sr = round1(u.buffs.shieldR);
@@ -1048,7 +1152,7 @@ export class WarlockGame {
 
     const players = {};
     for (const s of this.ps.values()) {
-      players[s.id] = { g: Math.floor(s.gold), k: s.kills, sc: s.score, d: Math.round(s.dmg), sp: s.spells, sl: s.slots, it: s.items, rd: s.ready };
+      players[s.id] = { g: Math.floor(s.gold), k: s.kills, a: s.assists, w: s.wins, sc: s.score, d: round1(s.dmg), sp: s.spells, sl: s.slots, it: s.items, rd: s.ready };
     }
     const me = this.ps.get(pid);
     const snap = {
