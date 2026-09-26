@@ -1,0 +1,26 @@
+{
+  "name": "arcane-arena",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Knock rival warlocks into the lava: a browser remake of the classic Warcraft III custom map Warlock, with peer-to-peer multiplayer",
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/dev.js",
+    "build": "vite build",
+    "preview": "vite preview --outDir dist",
+    "serve": "VITE_TRANSPORT=ws vite build && node server.js",
+    "test": "node --test test/*.test.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "peerjs": "^1.5.5",
+    "three": "^0.186.1",
+    "ws": "^8.21.3"
+  },
+  "devDependencies": {
+    "peer": "^1.0.2",
+    "vite": "^8.3.1"
+  }
+}
