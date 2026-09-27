@@ -1,7 +1,7 @@
 // Arcane Arena client entry.
 import { startApp } from '../engine/client/app.js';
 import { ArcaneHud } from './hud.js';
-import { SPELLS, SLOT_KEYS, stat } from '../shared/warlockData.js';
+import { SPELLS, SLOT_KEYS, stat, WARLOCK } from '../shared/warlockData.js';
 import { meta } from '../meta.js';
 import { CAM_DISTANCE } from '../engine/client/render/world.js';
 
@@ -30,6 +30,12 @@ startApp({
     '<b>Tap the top bar</b> for the scoreboard · <b>long-press</b> a shop card to sell',
   ],
   quickCast: true,
+  // The host's movement and casting rules, for predicting your own warlock.
+  predict: {
+    friction: WARLOCK.friction,
+    castPoint: WARLOCK.castPoint,
+    spells: Object.fromEntries(Object.entries(SPELLS).filter(([id]) => !AUTOCAST.has(id)).map(([id, d]) => [id, { castTime: d.castTime || 0, self: SELF_CAST.has(id) }])),
+  },
   touchDefaultSlot: 0, // on phones a tap casts fireball (Q) toward it
   Hud: ArcaneHud,
   spellColors: Object.fromEntries(Object.entries(SPELLS).map(([id, d]) => [id, d.color])),

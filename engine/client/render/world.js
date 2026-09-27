@@ -577,6 +577,7 @@ export class World {
 
   render(dt) {
     this.adaptResolution(dt);
+    this.pred = this.predictor && this.offset != null ? this.predictor.frame(performance.now() / 1000 - this.offset, dt) : null;
     this.time += dt;
     for (const m of this.liquids) m.uniforms.time.value = this.time;
     const rt = this.renderTime();
@@ -846,7 +847,15 @@ totalEmissiveRadiance += vec3(1.0, 0.22, 0.02) * heat * heat * heat * (0.8 + vno
       z = p.z;
       if (!p.born) o.visible = false;
     }
-    const f = lerpAngle(a.f ?? 0, b.f ?? 0, k);
+    let f = lerpAngle(a.f ?? 0, b.f ?? 0, k);
+    // The player's own hero is drawn where the prediction puts it (it
+    // reacts to orders at once), everyone else from the snapshot timeline.
+    const P = v.id === this.myUnit && !b.dead ? this.pred : null;
+    if (P) {
+      x = P.x;
+      z = P.y;
+      f = P.f;
+    }
     v.x = x;
     v.z = z;
     const fx = b.fx || [];
@@ -857,8 +866,8 @@ totalEmissiveRadiance += vec3(1.0, 0.22, 0.02) * heat * heat * heat * (0.8 + vno
         o.position.z = z;
         o.rotation.y = -f;
         const body = o.userData.body;
-        const moving = b.mv && !b.dead;
-        const turning = b.tn && !b.dead; // shuffling round on the spot
+        const moving = (P ? P.moving : b.mv) && !b.dead;
+        const turning = (P ? P.turning : b.tn) && !b.dead; // shuffling round on the spot
         v.walk = (v.walk || 0) + dt * (moving ? 12 : turning ? 9 : 0);
         body.position.y = moving ? Math.abs(Math.sin(v.walk)) * 0.08 : 0;
         const legAmp = moving ? 0.5 : turning ? 0.2 : 0;

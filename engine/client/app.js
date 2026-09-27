@@ -8,6 +8,7 @@ import { Net } from './net.js';
 import { World, escapeHtml } from './render/world.js';
 import { Input } from './input.js';
 import { Touch } from './touch.js';
+import { Predictor } from './predict.js';
 import { TOUCH } from './device.js';
 import { play, unlockAudio, toggleMute, isMuted } from './audio.js';
 import { renderShell } from './shell.js';
@@ -32,7 +33,10 @@ export function startApp(cfg) {
   world.spellColors = cfg.spellColors || {};
   if (import.meta.env?.DEV) window.__world = world; // for inspecting the renderer from the console
   const net = new Net(onMessage, onStatus, { transport, p2p: cfg.p2p });
-  const send = (m) => net.send(m);
+  // Client-side prediction of the player's own hero (see predict.js).
+  const predictor = cfg.predict ? new Predictor(cfg.predict) : null;
+  world.predictor = predictor;
+  const send = (m) => net.send(predictor ? predictor.order(m) : m);
   const isHost = () => state.lobby && state.lobby.host === state.myId;
   const players = () => state.lobby?.players || [];
 
@@ -229,6 +233,7 @@ export function startApp(cfg) {
         if (!state.inGame) return;
         state.snap = m;
         world.pushSnapshot(m);
+        predictor?.snapshot(m);
         hud.update(m);
         input.active = m.phase === 'play' || m.phase === 'shop';
         break;

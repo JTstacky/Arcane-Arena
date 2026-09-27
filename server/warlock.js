@@ -180,6 +180,29 @@ export class WarlockGame {
   }
 
   // WC3 speed modifiers are flat: Drain takes 50 off, Windwalk adds 200.
+  // Everything the owner's client needs to run its own warlock's movement
+  // forward from this snapshot (client-side prediction): the exact position,
+  // heading, orders, knockback, speed and casting stage.
+  predictState(s) {
+    const u = s.unit;
+    if (!u?.alive || this.phase !== 'play') return null;
+    const r4 = (v) => Math.round(v * 1e4) / 1e4;
+    const c = u.casting;
+    const q = u.queued;
+    return {
+      sq: s.seq ?? -1,
+      x: r4(u.x), y: r4(u.y), h: r4(u.heading), f: r4(u.facing), ds: u.dispStep,
+      t: u.target ? [r4(u.target.x), r4(u.target.y)] : null,
+      v: [r4(u.vx), r4(u.vy)],
+      sp: r4(u.speed * u.speedMult), tr: u.turnRate, pw: u.propWindow,
+      st: u.stun > 0 ? r4(u.stun) : 0,
+      c: c ? { id: c.id, x: c.tx, y: c.ty, l: r4(c.lock), g: c.charge == null ? null : r4(c.charge) } : null,
+      q: q ? (q.c === 'cast' ? { c: 'cast', id: q.id, x: q.tx, y: q.ty } : { ...q }) : null,
+      d: u.buffs.dash ? [r4(u.buffs.dash.vx), r4(u.buffs.dash.vy), r4(u.buffs.dash.t)] : null,
+      cd: Object.fromEntries(Object.entries(s.cds).filter(([, v]) => v > 0).map(([k, v]) => [k, r4(v)])),
+    };
+  }
+
   updateSpeed(u) {
     let delta = 0;
     if (u.buffs.slow > 0) delta -= SPELLS.drain.slow;
@@ -193,6 +216,9 @@ export class WarlockGame {
     const s = this.ps.get(pid);
     if (!s) return;
     const u = s.unit;
+    // Orders carry a sequence number; the owner's snapshot echoes the last
+    // one handled so the client can replay the rest on its prediction.
+    if (Number.isFinite(m.q) && (m.c === 'move' || m.c === 'stop' || m.c === 'cast')) s.seq = m.q;
     switch (m.c) {
       case 'move':
       case 'stop': {
@@ -1218,7 +1244,7 @@ export class WarlockGame {
       ents,
       links: this.links.map((l) => [this.ps.get(l.a)?.unit?.id, this.ps.get(l.b)?.unit?.id]),
       players,
-      me: me ? { cd: Object.fromEntries(Object.entries(me.cds).filter(([, v]) => v > 0).map(([k, v]) => [k, round1(v)])), uid: me.unit?.id } : null,
+      me: me ? { cd: Object.fromEntries(Object.entries(me.cds).filter(([, v]) => v > 0).map(([k, v]) => [k, round1(v)])), uid: me.unit?.id, pr: this.predictState(me) } : null,
     };
     if (this.phase === 'over') snap.standings = this.standings();
     return snap;
