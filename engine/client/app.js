@@ -92,6 +92,32 @@ export function startApp(cfg) {
     }
     input.frame();
     world.render(dt);
+    updateSpectate();
+  }
+
+  // After you die: who you are watching, and how to look around.
+  function updateSpectate() {
+    const on = state.inGame && state.snap?.phase === 'play' && world.isDead();
+    const el = $('spectate');
+    if (el.hidden === on) el.hidden = !on;
+    if (!on) {
+      if (world.spectate != null) world.spectate = null;
+      return;
+    }
+    const v = world.spectated();
+    const text = v
+      ? `Watching ${world.names[v.owner] ?? 'a player'}`
+      : TOUCH ? 'Drag or use the stick to look around' : 'Scroll with the screen edges · Space to watch a player';
+    const label = $('spec-label');
+    if (label.textContent !== text) label.textContent = text;
+    const c = v ? world.colors[v.owner] || '' : '';
+    if (label.style.color !== c) label.style.color = c;
+  }
+  for (const [id, dir] of [['spec-prev', -1], ['spec-next', 1]]) {
+    $(id).addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      world.spectateNext(dir);
+    });
   }
   requestAnimationFrame(frame);
 
@@ -255,8 +281,13 @@ export function startApp(cfg) {
         addChat(m.system ? m.text : `${m.name}: ${m.text}`, { color: m.system ? null : m.c, system: m.system, name: m.name, text: m.text });
         break;
       case 'error':
-        toast(m.text);
+        toast(m.text, m.text.length > 80 ? 9000 : 3500);
         play('error');
+        if (m.fatal && !state.inGame) {
+          const code = $('code').value;
+          leaveToMenu();
+          $('code').value = code; // keep the code so "Join" is one tap away
+        }
         break;
       case 'kicked':
         toast('You were removed from the game.');
@@ -270,7 +301,10 @@ export function startApp(cfg) {
   }
 
   function onStatus(s) {
-    if (s === 'closed' && state.myId) toast('Connection lost — reconnecting…');
+    if (s === 'connecting') toast('Connecting to the host…', 20000);
+    else if (s === 'reconnecting' || (s === 'closed' && state.myId)) toast('Connection lost — reconnecting…', 20000);
+    else if (s === 'open' && $('toast').dataset.status) $('toast').hidden = true;
+    $('toast').dataset.status = s === 'connecting' || s === 'reconnecting' || s === 'closed' ? '1' : '';
   }
 
   // Warn a host before closing the tab that runs everyone's game.
@@ -324,12 +358,13 @@ export function startApp(cfg) {
   }
 
   let toastTimer;
-  function toast(text) {
+  function toast(text, ms = 3500) {
     const t = $('toast');
     t.textContent = text;
     t.hidden = false;
+    delete t.dataset.status;
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => (t.hidden = true), 3500);
+    toastTimer = setTimeout(() => (t.hidden = true), ms);
   }
 
   // Options modal.

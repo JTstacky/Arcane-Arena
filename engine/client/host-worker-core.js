@@ -18,7 +18,8 @@ export function runHostWorker(gameDef) {
       case 'open': {
         const conn = {
           readyState: 1,
-          send: (data) => self.postMessage({ type: 'send', conn: m.conn, data }),
+          canDrop: !m.local,
+          send: (data, drop) => self.postMessage({ type: 'send', conn: m.conn, data, drop }),
           close: () => {
             conn.readyState = 3;
             self.postMessage({ type: 'close', conn: m.conn });

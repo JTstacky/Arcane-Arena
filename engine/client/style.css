@@ -306,26 +306,40 @@ body.touch #hud, body.touch #hud * { -webkit-user-select: none; user-select: non
 /* The console splits: unit info goes top left, the spells bottom right. */
 body.touch #console { left: 0; right: 0; top: 0; bottom: 0; transform: none; padding: 0; background: none; border: none; box-shadow: none; pointer-events: none; max-width: none; }
 body.touch #console > * { pointer-events: auto; }
+/* A slim health bar in the top-left corner. */
 body.touch #unitinfo {
-  position: fixed; top: 6px; left: calc(8px + env(safe-area-inset-left)); min-width: 0; width: 190px; padding: 6px 8px;
-  background: rgba(10, 8, 6, 0.72); border: 1px solid var(--edge); border-radius: 8px;
+  position: fixed; top: 4px; left: calc(6px + env(safe-area-inset-left)); min-width: 0; width: 128px; padding: 3px 5px;
+  background: rgba(10, 8, 6, 0.6); border: 1px solid var(--edge); border-radius: 6px;
 }
-body.touch .portrait, body.touch .inventory, body.touch .utitle { display: none; }
-body.touch .uname2 { font-size: 12px; margin-bottom: 3px; }
-body.touch .kbline { font-size: 10.5px; }
+body.touch .portrait, body.touch .inventory, body.touch .utitle, body.touch .uname2 { display: none; }
+body.touch .bighp { height: 11px; border-radius: 3px; }
+body.touch .bighp span { font-size: 8.5px; line-height: 10px; }
+body.touch .kbline { font-size: 9px; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Spells: a compact column (then a second) hugging the right edge, only the
+   spells you own, leaving the middle and bottom of the screen free to tap.
+   The default attack (fireball: a plain tap) is just a cooldown dial in the
+   bottom-right corner. */
 body.touch #cmdcard {
-  position: fixed; right: calc(10px + env(safe-area-inset-right)); bottom: 10px;
-  grid-template-columns: repeat(4, 60px); grid-auto-rows: 60px; gap: 7px;
+  position: fixed; right: calc(8px + env(safe-area-inset-right)); left: auto; top: calc(50% - 124px); bottom: auto;
+  grid-auto-flow: column; grid-template-rows: repeat(4, 52px); grid-template-columns: none; grid-auto-columns: 52px; gap: 6px 8px;
+  direction: rtl; /* the first column sits against the edge */
 }
+body.touch .cmd { direction: ltr; }
 body.touch .cmd .hk { display: none; }
-body.touch .cmd.empty { visibility: hidden; }
+body.touch .cmd.empty { display: none; }
+body.touch .cmd.dflt {
+  position: fixed; right: calc(10px + env(safe-area-inset-right)); bottom: 10px; top: auto; width: 44px; height: 44px;
+  border-radius: 50%; pointer-events: none; opacity: 0.85;
+}
+body.touch .cmd.dflt .pips { display: none; }
+body.touch .cmd.dflt .cdnum { font-size: 15px; }
 body.touch[data-armed="0"] .cmd[data-slot="0"], body.touch[data-armed="1"] .cmd[data-slot="1"], body.touch[data-armed="2"] .cmd[data-slot="2"], body.touch[data-armed="3"] .cmd[data-slot="3"], body.touch[data-armed="4"] .cmd[data-slot="4"], body.touch[data-armed="5"] .cmd[data-slot="5"], body.touch[data-armed="6"] .cmd[data-slot="6"], body.touch[data-armed="7"] .cmd[data-slot="7"] { border-color: #ffe066; box-shadow: 0 0 12px #ffcf40, inset 0 0 8px rgba(0, 0, 0, 0.8); }
 body.touch #topbar { min-width: 0; gap: 12px; padding: 5px 12px; font-size: 12px; }
 body.touch #topbar .phase { font-size: 13px; }
 body.touch #multiboard { display: none; top: 40px; font-size: 10.5px; min-width: 0; }
 body.touch.mb-open #multiboard { display: block; }
-body.touch #messages { bottom: auto; top: 96px; left: calc(10px + env(safe-area-inset-left)); font-size: 12px; }
-body.touch #chat { bottom: auto; top: 96px; left: calc(10px + env(safe-area-inset-left)); width: min(300px, 40vw); font-size: 12px; }
+body.touch #messages { bottom: auto; top: 52px; left: calc(10px + env(safe-area-inset-left)); font-size: 12px; }
+body.touch #chat { bottom: auto; top: 52px; left: calc(10px + env(safe-area-inset-left)); width: min(300px, 40vw); font-size: 12px; }
 body.touch #errmsg { bottom: 150px; font-size: 14px; }
 body.touch #targethint { bottom: auto; top: 42px; font-size: 13px; }
 body.touch #shop { top: 40px; bottom: 8px; max-height: none; width: calc(100vw - 16px); padding: 10px 12px; }
@@ -363,3 +377,12 @@ body.touch.shopping #unitinfo, body.touch.shopping #chat, body.touch.shopping #m
   .lobby-head { gap: 8px; }
   .roomcode { font-size: 30px; }
 }
+
+/* Spectating after death. */
+#spectate {
+  position: absolute; top: 46px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 8px;
+  padding: 4px 6px; background: rgba(10, 8, 6, 0.78); border: 1px solid var(--edge); border-radius: 999px; font-size: 13px; white-space: nowrap;
+}
+#spectate button { width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--gold-dim); background: #2c2217; color: var(--gold); font-size: 13px; cursor: pointer; touch-action: manipulation; }
+#spec-label { padding: 0 4px; font-weight: 600; }
+body.touch #spectate { top: 38px; font-size: 12px; }

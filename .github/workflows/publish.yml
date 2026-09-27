@@ -30,6 +30,10 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
+        env:
+          # Optional: your own TURN relay for players on strict networks, as a
+          # JSON array of RTCIceServer objects (repo Settings -> Variables).
+          VITE_ICE_SERVERS: ${{ vars.ICE_SERVERS }}
       - name: Commit the build to the Teng Games site
         env:
           TOKEN: ${{ secrets.SITE_DEPLOY_TOKEN }}

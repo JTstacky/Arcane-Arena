@@ -107,6 +107,8 @@ export class ArcaneHud extends HudBase {
     for (let i = 0; i < SLOT_KEYS.length; i++) {
       const id = me.sl[i];
       if (id) this.setCooldown(card[i], cds[id] || 0, stat(SPELLS[id], 'cd', me.sp[id]));
+      // On phones a plain tap throws a fireball: its button becomes a dial.
+      card[i].classList.toggle('dflt', id === 'fireball');
     }
     const myUnit = s.ents.find((e) => e.k === 'warlock' && e.o === this.myId());
     const hp = myUnit ? `${Math.ceil(myUnit.hp)} / ${myUnit.mhp}` : '';
@@ -123,7 +125,7 @@ export class ArcaneHud extends HudBase {
       <div class="portrait" style="--c:${r.color}">${ico('portrait_warlock', '🧙')}</div>
       <div class="uinfo"><div class="uname2" style="color:${r.color}">${r.name}</div><div class="utitle">Warlock</div>
         <div class="bighp"><div></div><span></span></div>
-        <div class="kbline" data-tip="text:${encodeURIComponent('<div class=tt-title>Damage taken</div><div class=tt-desc>The original shows this on the mana bar. A hit of D damage pushes you with D × (100 + damage taken), so every point you take this round makes you fly 1% further. Lava adds half its damage.</div>')}">Damage taken <b></b> · knockback <b></b></div></div>
+        <div class="kbline" data-tip="text:${encodeURIComponent('<div class=tt-title>Damage taken</div><div class=tt-desc>The original shows this on the mana bar. A hit of D damage pushes you with D × (100 + damage taken), so every point you take this round makes you fly 1% further. Lava adds half its damage.</div>')}"><span class="mouseonly">Damage taken </span><span class="touchonly">Hurt </span><b></b> · <span class="mouseonly">knockback </span><b></b><span class="touchonly"> kb</span></div></div>
       <div class="inventory">${inv.join('')}</div>`);
     // The numbers change every hit: patch them rather than rebuild the panel.
     const vals = [`${frac * 100}%`, hpColor(frac), hp, (+kp).toFixed(1), `+${Math.round(kp)}%`];

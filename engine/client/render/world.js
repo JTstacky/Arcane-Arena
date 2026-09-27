@@ -1071,14 +1071,58 @@ totalEmissiveRadiance += vec3(1.0, 0.22, 0.02) * heat * heat * heat * (0.8 + vno
     return this.myUnit != null ? this.views.get(this.myUnit) : null;
   }
 
+  // True once your hero has died and the camera is free to spectate.
+  isDead() {
+    const me = this.myView();
+    return !!me && me.deadT > 1.2;
+  }
+
+  // Living rival heroes, in a stable order, for spectating.
+  spectatable() {
+    return [...this.views.values()]
+      .filter((v) => v.bar && v.owner !== this.myId && !(v.deadT > 0) && v.obj.visible)
+      .sort((a, b) => a.owner - b.owner);
+  }
+
+  // Follows the next (dir 1) or previous (-1) living player; null if none.
+  spectateNext(dir = 1) {
+    const list = this.spectatable();
+    if (!list.length) {
+      this.spectate = null;
+      return null;
+    }
+    const i = list.findIndex((v) => v.id === this.spectate);
+    const next = list[(i + dir + list.length + (i < 0 && dir < 0 ? 1 : 0)) % list.length];
+    this.spectate = next.id;
+    return next;
+  }
+
+  spectated() {
+    const v = this.spectate != null ? this.views.get(this.spectate) : null;
+    if (v && !(v.deadT > 0)) return v;
+    this.spectate = null;
+    return null;
+  }
+
+  // Moves the camera by a ground-space offset (drag to look around).
+  panBy(dx, dz) {
+    this.spectate = null;
+    this.focus.x += dx;
+    this.focus.z += dz;
+  }
+
   updateCamera(dt) {
     const me = this.myView();
-    if (this.follow && me && !(me.deadT > 1.5)) {
-      this.focus.x += (me.obj.position.x - this.focus.x) * Math.min(1, dt * 6);
-      this.focus.z += (me.obj.position.z - this.focus.z) * Math.min(1, dt * 6);
-    } else if (this.pan) {
-      this.focus.x += this.pan.x * dt * this.zoom * 1.2;
-      this.focus.z += this.pan.z * dt * this.zoom * 1.2;
+    const pan = this.pan || this.touchPan;
+    // Dead: follow the player you are spectating, or look around freely.
+    const target = me && me.deadT > 1.5 ? (pan ? null : this.spectated()) : this.follow ? me : null;
+    if (pan && this.spectate != null) this.spectate = null;
+    if (target) {
+      this.focus.x += (target.obj.position.x - this.focus.x) * Math.min(1, dt * 6);
+      this.focus.z += (target.obj.position.z - this.focus.z) * Math.min(1, dt * 6);
+    } else if (pan) {
+      this.focus.x += pan.x * dt * this.zoom * 1.2;
+      this.focus.z += pan.z * dt * this.zoom * 1.2;
     }
     const B = this.map?.bounds ?? 25;
     this.focus.x = Math.max(-B, Math.min(B, this.focus.x));

@@ -137,6 +137,7 @@ export class Touch {
     if (!s || e.pointerId !== s.id) return;
     this.stick = null;
     document.getElementById('joy-knob').style.transform = '';
+    this.world.touchPan = null;
     this.halt();
   }
 
@@ -156,10 +157,22 @@ export class Touch {
     if (this.stick) this.steer(false);
   }
 
+  // After dying the joystick scrolls the camera instead.
+  spectating() {
+    return this.world.isDead();
+  }
+
   // Sends a move order a few metres ahead of the hero in the stick's direction.
   steer(now) {
     const s = this.stick;
-    if (!s || !this.input.active) return;
+    if (!s) return;
+    if (this.spectating()) {
+      const l = Math.hypot(s.dx, s.dy);
+      this.world.touchPan = l > DEAD ? { x: s.dx / s.max, z: s.dy / s.max } : null;
+      return;
+    }
+    this.world.touchPan = null;
+    if (!this.input.active) return;
     if (Math.hypot(s.dx, s.dy) <= DEAD) return;
     if (performance.now() < this.input.holdPause) return; // let a cast begin
     if (!now && performance.now() - this.lastSent < RESEND_MS - 10) return;
@@ -188,6 +201,12 @@ export class Touch {
   move(e) {
     const t = this.touches.get(e.pointerId);
     if (!t) return;
+    // Spectating: one finger drags the battlefield around.
+    if (this.spectating() && this.touches.size === 1) {
+      const a = this.world.screenToGround(t.x, t.y);
+      const b = this.world.screenToGround(e.clientX, e.clientY);
+      if (a && b) this.world.panBy(a.x - b.x, a.y - b.y);
+    }
     t.x = e.clientX;
     t.y = e.clientY;
   }
@@ -206,6 +225,12 @@ export class Touch {
     if (!input.active) return;
     const p = this.world.screenToGround(x, y);
     if (!p) return;
+    if (this.spectating()) {
+      // Tap a player to watch them.
+      const v = this.nearestRival(p, 3);
+      if (v) this.world.spectate = v.id;
+      return;
+    }
     if (input.targeting) {
       input.castAt(input.targeting, this.snap(p));
       input.cancelTarget();
@@ -215,6 +240,21 @@ export class Touch {
       this.send({ t: 'cmd', c: 'move', x: +p.x.toFixed(2), y: +p.y.toFixed(2) });
       this.world.moveMarker(p.x, p.y);
     }
+  }
+
+  nearestRival(p, within) {
+    const myId = this.getMyId();
+    let best = null;
+    let bd = within;
+    for (const v of this.world.views.values()) {
+      if (!v.bar || v.owner === myId || v.deadT > 0 || !v.obj.visible) continue;
+      const d = Math.hypot(v.x - p.x, v.z - p.y);
+      if (d < bd) {
+        bd = d;
+        best = v;
+      }
+    }
+    return best;
   }
 
   // The nearest living rival within SNAP of the tap, or the tap itself.

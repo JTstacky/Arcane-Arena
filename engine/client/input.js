@@ -187,8 +187,12 @@ export class Input {
     }
     if (e.code === 'Space') {
       e.preventDefault();
-      this.world.follow = true;
-      this.world.centerOnMe();
+      // Dead: Space watches the next living player instead.
+      if (this.world.isDead()) this.world.spectateNext(e.shiftKey ? -1 : 1);
+      else {
+        this.world.follow = true;
+        this.world.centerOnMe();
+      }
       return;
     }
     if (e.code === 'KeyY') {
@@ -208,14 +212,15 @@ export class Input {
     if (this.keysDown.has('ArrowRight')) px += 1;
     if (this.keysDown.has('ArrowUp')) pz -= 1;
     if (this.keysDown.has('ArrowDown')) pz += 1;
-    if (!w.follow && !this.touchMode && document.hasFocus()) {
+    // Edge scrolling when the camera is free — including after you die.
+    if ((!w.follow || w.isDead()) && !this.touchMode && document.hasFocus()) {
       const m = 6;
       if (this.mouse.x < m) px -= 1;
       if (this.mouse.x > innerWidth - m) px += 1;
       if (this.mouse.y < m) pz -= 1;
       if (this.mouse.y > innerHeight - m) pz += 1;
     }
-    if (px || pz) w.follow = false;
+    if ((px || pz) && !w.isDead()) w.follow = false;
     w.pan = px || pz ? { x: px, z: pz } : null;
     if (this.targeting) {
       w.showRange(this.range);

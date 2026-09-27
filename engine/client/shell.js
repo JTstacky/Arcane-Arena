@@ -21,6 +21,7 @@ export function renderShell(cfg) {
         <div id="cmdcard"></div>
       </div>
       <div id="targethint" hidden></div>
+      <div id="spectate" hidden><button id="spec-prev" title="Previous player">◀</button><span id="spec-label"></span><button id="spec-next" title="Next player">▶</button></div>
       <div id="errmsg" hidden></div>
       <div id="labinfo" hidden></div>
       <button id="hud-menu" class="iconbtn" title="Options">⚙</button>

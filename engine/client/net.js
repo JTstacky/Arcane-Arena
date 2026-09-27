@@ -28,11 +28,47 @@ function token() {
   }
 }
 
+// How peers reach each other across the internet. STUN lets most home
+// routers connect directly; players behind stricter networks (mobile data,
+// school or office wifi, "carrier-grade" NAT) need a TURN relay. PeerJS's own
+// free relays only speak UDP on port 3478, which such networks often block,
+// so relays over TCP/TLS on ports 80 and 443 are listed too. Set
+// VITE_ICE_SERVERS (a JSON array of RTCIceServer objects, e.g. from a free
+// Metered.ca or Cloudflare TURN account) at build time to add your own relay;
+// it is tried first.
+const DEFAULT_ICE_SERVERS = [
+  { urls: ['stun:stun.l.google.com:19302', 'stun:stun.cloudflare.com:3478'] },
+  { urls: ['turn:eu-0.turn.peerjs.com:3478', 'turn:us-0.turn.peerjs.com:3478'], username: 'peerjs', credential: 'peerjsp' },
+  {
+    urls: ['turn:openrelay.metered.ca:80', 'turn:openrelay.metered.ca:443?transport=tcp', 'turns:openrelay.metered.ca:443?transport=tcp'],
+    username: 'openrelayproject',
+    credential: 'openrelayproject',
+  },
+];
+
+export function iceServers() {
+  const extra = import.meta.env?.VITE_ICE_SERVERS;
+  if (extra) {
+    try {
+      const list = JSON.parse(extra);
+      if (Array.isArray(list) && list.length) return [...list, ...DEFAULT_ICE_SERVERS];
+    } catch {
+      console.warn('VITE_ICE_SERVERS is not valid JSON; using the default relays');
+    }
+  }
+  return DEFAULT_ICE_SERVERS;
+}
+
+// How long a guest waits for the host's data channel to open before trying
+// again: a relayed connection can take several seconds to set up.
+const DIAL_TIMEOUT_MS = 15000;
+const DIAL_ATTEMPTS = 3;
+
 // PeerJS settings; override with VITE_PEER_* at build time to use your own
 // signalling server (e.g. `npx peerjs --port 9000`).
 function peerOptions() {
   const env = import.meta.env || {};
-  const o = { debug: 1 };
+  const o = { debug: 1, config: { iceServers: iceServers(), sdpSemantics: 'unified-plan' } };
   if (env.VITE_PEER_HOST) {
     o.host = env.VITE_PEER_HOST;
     o.port = +(env.VITE_PEER_PORT || 443);
@@ -188,8 +224,12 @@ class P2PHost {
 
   fromWorker(m) {
     if (m.type === 'send') {
-      if (m.conn === 'local') this.net.onMessage(JSON.parse(m.data));
-      else this.conns.get(m.conn)?.send(m.data);
+      if (m.conn === 'local') return this.net.onMessage(JSON.parse(m.data));
+      const dc = this.conns.get(m.conn);
+      // A backed-up channel skips replaceable snapshots rather than queueing
+      // stale state behind them (the channel is reliable and ordered).
+      if (!dc || (m.drop && (dc.dataChannel?.bufferedAmount > 65536 || dc.bufferSize > 0))) return;
+      dc.send(m.data);
     } else if (m.type === 'close') {
       this.conns.get(m.conn)?.close();
     }
@@ -212,25 +252,50 @@ class P2PClient {
   constructor(hello, net) {
     this.net = net;
     this.hello = hello;
-    this.retry = 0;
+    this.retry = 0; // redials after losing an established connection
+    this.attempt = 0; // dials that never opened
     this.peer = new Peer(peerOptions());
     this.peer.on('open', () => this.dial());
+    this.peer.on('disconnected', () => {
+      // Lost the signalling server; it is only needed to (re)dial the host.
+      if (!this.closed) setTimeout(() => !this.closed && !this.peer.destroyed && this.peer.reconnect(), 1000);
+    });
     this.peer.on('error', (err) => {
       if (err.type === 'peer-unavailable') {
+        clearTimeout(this.dialTimer);
         if (this.joined) this.lost();
-        else net.onMessage({ t: 'error', text: 'No game with that code — or its host has left.' });
+        else this.fail('No game with that code — or its host has left.');
       } else if (err.type === 'network' || err.type === 'server-error' || err.type === 'socket-error') {
-        if (!this.joined) net.onMessage({ t: 'error', text: 'Could not reach the matchmaking server. Check your connection.' });
+        if (!this.joined) this.fail('Could not reach the matchmaking server. Check your internet connection and try again.');
       } else console.warn('PeerJS error', err);
     });
   }
 
   dial() {
+    if (this.closed) return;
     const code = String(this.hello.code).toUpperCase();
     const dc = this.peer.connect(`${this.net.p2p.prefix}-${code}`, { reliable: true, serialization: 'raw' });
     this.dc = dc;
+    this.net.onStatus(this.joined ? 'reconnecting' : 'connecting');
+    // Across the internet the connection may need a relay, which can take a
+    // few seconds; if the channel never opens, try again, then give up with
+    // an explanation instead of waiting forever.
+    clearTimeout(this.dialTimer);
+    this.dialTimer = setTimeout(() => {
+      if (this.dc !== dc || dc.open || this.closed) return;
+      this.dc = null;
+      dc.close();
+      this.attempt++;
+      if (this.attempt < DIAL_ATTEMPTS) this.dial();
+      else if (this.joined) this.lost();
+      else {
+        this.fail("Couldn't connect to the host's game. One of your networks may be blocking direct connections (common on school, office or some mobile networks). Try again, try another network, or let someone else host.");
+      }
+    }, DIAL_TIMEOUT_MS);
     dc.on('open', () => {
+      clearTimeout(this.dialTimer);
       this.retry = 0;
+      this.attempt = 0;
       this.net.onStatus('open');
       dc.send(JSON.stringify(this.hello));
     });
@@ -245,6 +310,13 @@ class P2PClient {
     dc.on('close', () => {
       if (this.dc === dc && !this.closed) this.lost();
     });
+  }
+
+  fail(text) {
+    clearTimeout(this.dialTimer);
+    this.net.onStatus('failed');
+    this.net.onMessage({ t: 'error', text, fatal: true });
+    this.close();
   }
 
   lost() {
@@ -263,6 +335,7 @@ class P2PClient {
 
   close() {
     this.closed = true;
+    clearTimeout(this.dialTimer);
     this.dc?.close();
     this.peer?.destroy();
   }

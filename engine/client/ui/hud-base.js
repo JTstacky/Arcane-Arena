@@ -38,7 +38,9 @@ export class HudBase {
     });
     document.addEventListener('mouseover', (e) => {
       const el = e.target.closest?.('[data-tip]');
-      if (!el) return this.hideTip();
+      // Phones have no hover: a tap's emulated mouseover would leave a
+      // tooltip stuck over the battlefield.
+      if (!el || document.body.classList.contains('touch')) return this.hideTip();
       const [kind, id, lvl] = el.dataset.tip.split(':');
       const html = kind === 'text' ? decodeURIComponent(id) : this.tooltipFor(kind, id, +lvl);
       if (html) this.showTip(html, el);

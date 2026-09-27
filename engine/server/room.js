@@ -270,7 +270,11 @@ export class Room {
         snap.t = 'snap';
         snap.tk = this.tickCount;
         snap.ev = events.filter((e) => e.to == null || e.to === p.id);
-        this.sendTo(p, snap);
+        // A snapshot without events can be skipped by a congested connection:
+        // the next one supersedes it.
+        if (!snap.ev.length && p.ws?.canDrop) {
+          if (p.ws.readyState === 1) p.ws.send(JSON.stringify(snap), true);
+        } else this.sendTo(p, snap);
       }
     }
     if (g.over) {
