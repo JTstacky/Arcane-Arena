@@ -27,8 +27,10 @@ export class HudBase {
     this.myId = myId;
     this.cache = {};
     this.tooltip = $('tooltip');
-    $('cmdcard').addEventListener('click', (e) => {
-      const b = e.target.closest('[data-slot]');
+    // Fires on the press, like WC3's command card (a click can also be lost
+    // if the buttons are rebuilt between press and release).
+    $('cmdcard').addEventListener('mousedown', (e) => {
+      const b = e.button === 0 && e.target.closest('[data-slot]');
       if (b) this.onSlot(+b.dataset.slot);
     });
     $('centercard').addEventListener('click', (e) => {
@@ -73,10 +75,12 @@ export class HudBase {
     this.hideTip();
   }
 
+  // Sets a panel's HTML; true if it was rebuilt.
   set(id, html) {
-    if (this.cache[id] === html) return;
+    if (this.cache[id] === html) return false;
     this.cache[id] = html;
     $(id).innerHTML = html;
+    return true;
   }
 
   playerRow(id) {
@@ -102,11 +106,23 @@ export class HudBase {
       </table>${this.isHost() ? '<button class="btn primary" id="to-lobby">Back to lobby</button>' : '<div class="sub">Waiting for the host…</div>'}</div>`;
   }
 
-  // Standard cooldown button for the command card.
-  cmdButton({ slot, icon, key, cd = 0, max = 1, pips = '', tip = '' }) {
-    const pct = cd > 0 ? Math.min(100, (cd / max) * 100) : 0;
-    return `<div class="cmd ${cd > 0 ? 'cooling' : ''}" data-slot="${slot}" ${tip ? `data-tip="${tip}"` : ''}>
+  // Standard button for the command card. Its cooldown is drawn separately
+  // by setCooldown, so the card is only rebuilt when the spells change.
+  cmdButton({ slot, icon, key, pips = '', tip = '' }) {
+    return `<div class="cmd" data-slot="${slot}" ${tip ? `data-tip="${tip}"` : ''}>
       <span class="icon">${icon}</span><span class="hk">${key}</span>${pips ? `<span class="pips">${pips}</span>` : ''}
-      ${cd > 0 ? `<span class="cdsweep" style="--p:${pct}%"></span><span class="cdnum">${Math.ceil(cd)}</span>` : ''}</div>`;
+      <span class="cdsweep"></span><span class="cdnum"></span></div>`;
+  }
+
+  // Shows a command-card button's cooldown, touching the DOM only on change.
+  setCooldown(el, cd, max) {
+    const n = cd > 0 ? Math.ceil(cd) : 0;
+    const p = cd > 0 ? Math.min(100, Math.round((cd / max) * 100)) : 0;
+    if (el._cd === n && el._p === p) return;
+    if (!!el._cd !== !!n) el.classList.toggle('cooling', n > 0);
+    if (el._cd !== n) el.querySelector('.cdnum').textContent = n || '';
+    if (el._p !== p) el.querySelector('.cdsweep').style.setProperty('--p', `${p}%`);
+    el._cd = n;
+    el._p = p;
   }
 }

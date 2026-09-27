@@ -65,9 +65,11 @@ export class Touch {
       cardTouch = performance.now();
       input.useSlot(+b.dataset.slot);
     });
-    card.addEventListener('click', (e) => {
-      if (performance.now() - cardTouch < 800) e.stopPropagation();
-    }, true);
+    for (const type of ['mousedown', 'click']) {
+      card.addEventListener(type, (e) => {
+        if (performance.now() - cardTouch < 800) e.stopPropagation(); // the tap's emulated mouse events
+      }, true);
+    }
     card.addEventListener('pointerup', () => setTimeout(() => (document.getElementById('tooltip').hidden = true), 0));
 
     // The shop fills a phone's screen: other panels step aside while it is open.
@@ -126,23 +128,28 @@ export class Touch {
     document.getElementById('joy-knob').style.transform = `translate(${dx}px, ${dy}px)`;
     // Answer a sharp change of direction at once rather than on the next tick.
     const dir = l > DEAD ? Math.atan2(dy, dx) : null;
-    if (dir != null && (this.lastDir == null || Math.abs(Math.atan2(Math.sin(dir - this.lastDir), Math.cos(dir - this.lastDir))) > 0.35)) this.steer(true);
+    if (dir == null) this.halt(); // back in the middle: stand still
+    else if ((this.lastDir == null || Math.abs(Math.atan2(Math.sin(dir - this.lastDir), Math.cos(dir - this.lastDir))) > 0.35)) this.steer(true);
   }
 
   stickUp(e) {
     const s = this.stick;
     if (!s || e.pointerId !== s.id) return;
     this.stick = null;
-    this.lastDir = null;
     document.getElementById('joy-knob').style.transform = '';
-    if (this.moving) {
-      this.moving = false;
-      // Don't cancel a spell that is still turning to face its target.
-      const wait = Math.max(0, this.input.holdPause - performance.now());
-      setTimeout(() => {
-        if (!this.stick) this.send({ t: 'cmd', c: 'stop' });
-      }, wait);
-    }
+    this.halt();
+  }
+
+  // Stops the walk: the last order points a few metres ahead.
+  halt() {
+    this.lastDir = null;
+    if (!this.moving) return;
+    this.moving = false;
+    // Don't cancel a spell that is still turning to face its target.
+    const wait = Math.max(0, this.input.holdPause - performance.now());
+    setTimeout(() => {
+      if (!this.moving) this.send({ t: 'cmd', c: 'stop' });
+    }, wait);
   }
 
   tick() {

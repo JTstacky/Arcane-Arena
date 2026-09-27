@@ -86,6 +86,7 @@ class WsClient {
   }
 
   open() {
+    if (this.closed) return;
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     const base = location.pathname.replace(/[^/]*$/, '');
     const ws = new WebSocket(`${proto}://${location.host}${base}ws`);
@@ -106,7 +107,7 @@ class WsClient {
       this.net.onStatus('closed');
       if (this.hello.t === 'join' && this.retry < 8) {
         this.retry++;
-        setTimeout(() => this.open(), Math.min(4000, 500 * this.retry));
+        this.retryTimer = setTimeout(() => this.open(), Math.min(4000, 500 * this.retry));
       }
     };
   }
@@ -117,6 +118,7 @@ class WsClient {
 
   close() {
     this.closed = true;
+    clearTimeout(this.retryTimer);
     this.ws?.close();
   }
 }

@@ -219,6 +219,7 @@ export class World {
 
     this.selGeo = new THREE.RingGeometry(0.72, 0.86, 40);
     this.selGeo.rotateX(-Math.PI / 2);
+    M.SHARED.add(this.selGeo);
     this.rangeRing = new THREE.Mesh(new THREE.RingGeometry(0.97, 1, 96).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.35, depthWrite: false }));
     this.rangeRing.position.y = 0.06;
     this.rangeRing.visible = false;
@@ -256,8 +257,13 @@ export class World {
     for (const v of this.views.values()) this.removeView(v);
     this.views.clear();
     this.snaps = [];
+    // The room's tick count runs on between games: old clock samples lie.
+    this.samples = [];
+    this.offset = null;
     this.pendingEvents = [];
     this.fx.clear();
+    for (const m of this.linkBeams) m.mesh.visible = false;
+    M.disposeTree(this.mapGroup, true);
     this.mapGroup.clear();
     this.liquids = [];
     this.animated = [];
@@ -549,9 +555,7 @@ export class World {
     v.missile?.release();
     this.entGroup.remove(v.obj);
     v.bar?.remove();
-    v.obj.traverse((o) => {
-      if (o.isInstancedMesh) o.dispose();
-    });
+    M.disposeTree(v.obj);
   }
 
   // -------------------------------------------------------------- frame
@@ -576,7 +580,7 @@ export class World {
   }
 
   render(dt) {
-    this.adaptResolution(dt);
+    if (!this.frameCapped) this.adaptResolution(dt); // a capped rate says nothing about speed
     this.pred = this.predictor && this.offset != null ? this.predictor.frame(performance.now() / 1000 - this.offset, dt) : null;
     this.time += dt;
     for (const m of this.liquids) m.uniforms.time.value = this.time;
@@ -585,14 +589,15 @@ export class World {
 
     // Fire events whose time has come.
     if (this.pendingEvents.length) {
-      const due = [];
-      this.pendingEvents = this.pendingEvents.filter((p) => {
-        if (p.t <= rt + 0.02) {
-          due.push(p.e);
-          return false;
-        }
-        return true;
-      });
+      const pe = this.pendingEvents;
+      const due = (this._due ||= []);
+      due.length = 0;
+      let w = 0;
+      for (let i = 0; i < pe.length; i++) {
+        if (pe[i].t <= rt + 0.02) due.push(pe[i].e);
+        else pe[w++] = pe[i];
+      }
+      pe.length = w;
       for (const e of due) this.handleEvent(e);
     }
 
@@ -631,8 +636,14 @@ export class World {
       this.updateLinks(b, a, k);
       const snap = b.snap;
       if (this.floorMesh && snap.arena) this.setFloorRadius(lerp(a.snap.arena?.r ?? snap.arena.r, snap.arena.r, k));
-      const fl = [...b.ents.values()].find((e) => e.k === 'floor');
-      if (this.floorMesh && fl) this.setFloorRadius(fl.r);
+      if (this.floorMesh) {
+        for (const e of b.ents.values()) {
+          if (e.k === 'floor') {
+            this.setFloorRadius(e.r);
+            break;
+          }
+        }
+      }
     }
 
     for (const a of this.animated) {
@@ -968,7 +979,7 @@ totalEmissiveRadiance += vec3(1.0, 0.22, 0.02) * heat * heat * heat * (0.8 + vno
         const ang = lerp(a.a, b.a, k);
         const g = lerp(a.g, b.g, k);
         const p = v.parts;
-        const dummy = new THREE.Object3D();
+        const dummy = (this._dummy ||= new THREE.Object3D());
         let i = 0;
         for (let r = b.r0 + 0.4; r < b.r1 && i < p.n; r += 0.85) {
           if (Math.abs(r - g) < b.gw / 2) {

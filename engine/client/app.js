@@ -79,8 +79,12 @@ export function startApp(cfg) {
 
   let last = performance.now();
   function frame(now) {
+    requestAnimationFrame(frame);
+    // The menu's backdrop is a slow orbit: 30 fps is plenty there.
+    if (!state.inGame && now - last < 30) return;
     const dt = Math.min(0.1, (now - last) / 1000);
     last = now;
+    world.frameCapped = !state.inGame;
     if (!state.inGame) {
       const t = now / 1000;
       world.focus.set(Math.cos(t * 0.05) * 4, 0, Math.sin(t * 0.05) * 4);
@@ -88,7 +92,6 @@ export function startApp(cfg) {
     }
     input.frame();
     world.render(dt);
-    requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
 
@@ -168,6 +171,8 @@ export function startApp(cfg) {
     state.myId = null;
     state.inGame = false;
     input.active = false;
+    input.cancelTarget();
+    input.rightHeld = false;
     hud.reset();
     showBackdrop();
     history.replaceState(null, '', location.pathname);

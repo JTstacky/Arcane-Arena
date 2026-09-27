@@ -560,7 +560,8 @@ export class WarlockGame {
   // 0.72·D·(100 + M) units.
   damage(target, amount, src, nx = 0, ny = 0, kbFactor = 1, kbVuln = 1) {
     const u = target.unit;
-    if (!u?.alive || amount <= 0) return;
+    // Once the round is decided, spells still in the air do no harm.
+    if (!u?.alive || amount <= 0 || this.phase !== 'play') return;
     if (u.buffs.invuln > 0) return;
     if (u.buffs.absorb > 0) {
       const a = Math.min(u.buffs.absorb, amount);

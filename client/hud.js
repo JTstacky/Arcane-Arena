@@ -100,9 +100,14 @@ export class ArcaneHud extends HudBase {
         continue;
       }
       const d = SPELLS[id];
-      cells.push(this.cmdButton({ slot: i, icon: ico(id, d.icon), key: SLOT_KEYS[i], cd: cds[id] || 0, max: stat(d, 'cd', me.sp[id]), pips: '•'.repeat(me.sp[id]), tip: `spell:${id}:${me.sp[id]}` }));
+      cells.push(this.cmdButton({ slot: i, icon: ico(id, d.icon), key: SLOT_KEYS[i], pips: '•'.repeat(me.sp[id]), tip: `spell:${id}:${me.sp[id]}` }));
     }
     this.set('cmdcard', cells.join(''));
+    const card = $('cmdcard').children;
+    for (let i = 0; i < SLOT_KEYS.length; i++) {
+      const id = me.sl[i];
+      if (id) this.setCooldown(card[i], cds[id] || 0, stat(SPELLS[id], 'cd', me.sp[id]));
+    }
     const myUnit = s.ents.find((e) => e.k === 'warlock' && e.o === this.myId());
     const hp = myUnit ? `${Math.ceil(myUnit.hp)} / ${myUnit.mhp}` : '';
     const kp = myUnit?.kp ?? 0;
@@ -114,12 +119,24 @@ export class ArcaneHud extends HudBase {
       inv.push(it ? `<div class="inv" data-tip="item:${it[0]}:${it[1]}">${ico(it[0], ITEMS[it[0]].icon)}<span class="lv">${it[1]}</span></div>` : '<div class="inv empty"></div>');
     }
     const r = this.playerRow(this.myId());
-    this.set('unitinfo', `
+    const rebuilt = this.set('unitinfo', `
       <div class="portrait" style="--c:${r.color}">${ico('portrait_warlock', '🧙')}</div>
       <div class="uinfo"><div class="uname2" style="color:${r.color}">${r.name}</div><div class="utitle">Warlock</div>
-        <div class="bighp"><div style="width:${frac * 100}%;background:${hpColor(frac)}"></div><span>${hp}</span></div>
-        <div class="kbline" data-tip="text:${encodeURIComponent('<div class=tt-title>Damage taken</div><div class=tt-desc>The original shows this on the mana bar. A hit of D damage pushes you with D × (100 + damage taken), so every point you take this round makes you fly 1% further. Lava adds half its damage.</div>')}">Damage taken <b>${(+kp).toFixed(1)}</b> · knockback <b>+${Math.round(kp)}%</b></div></div>
+        <div class="bighp"><div></div><span></span></div>
+        <div class="kbline" data-tip="text:${encodeURIComponent('<div class=tt-title>Damage taken</div><div class=tt-desc>The original shows this on the mana bar. A hit of D damage pushes you with D × (100 + damage taken), so every point you take this round makes you fly 1% further. Lava adds half its damage.</div>')}">Damage taken <b></b> · knockback <b></b></div></div>
       <div class="inventory">${inv.join('')}</div>`);
+    // The numbers change every hit: patch them rather than rebuild the panel.
+    const vals = [`${frac * 100}%`, hpColor(frac), hp, (+kp).toFixed(1), `+${Math.round(kp)}%`];
+    const ui = $('unitinfo');
+    if (!rebuilt && ui._vals?.every((v, i) => v === vals[i])) return;
+    const bar = ui.querySelector('.bighp');
+    bar.firstChild.style.width = vals[0];
+    bar.firstChild.style.background = vals[1];
+    bar.lastChild.textContent = vals[2];
+    const b = ui.querySelectorAll('.kbline b');
+    b[0].textContent = vals[3];
+    b[1].textContent = vals[4];
+    ui._vals = vals;
   }
 
   updateShop(s, me) {

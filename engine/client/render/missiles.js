@@ -8,6 +8,10 @@ import * as THREE from 'three';
 import { artTexture, Ribbon } from './effects.js';
 
 const HEIGHT = 1.1; // flying height of missiles, in metres
+const VORTEX = new THREE.Color('#b36bff');
+const _a = new THREE.Vector3();
+const _b = new THREE.Vector3();
+const j = () => (Math.random() - 0.5) * 0.25; // a little scatter
 
 function sprite(map, color, size, opacity = 1, gain = 1) {
   const c = new THREE.Color(color).multiplyScalar(gain);
@@ -68,7 +72,10 @@ export class Missile {
     }
     this.ribbon = this.def.ribbon ? new Ribbon(fx, this.def.ribbon) : null;
     this.core = this.def.core ? new Ribbon(fx, this.def.core) : null; // a bright inner streak
-    this.last = null;
+    this.last = { x: 0, z: 0 };
+    this.hasLast = false;
+    this.dir = { x: 0, z: 0 };
+    this.hasDir = false;
     this.acc = 0;
     this.t = Math.random() * 10;
   }
@@ -78,7 +85,7 @@ export class Missile {
     this.t += dt;
     const o = this.obj;
     if (!visible) return;
-    const prev = this.last;
+    const prev = this.hasLast ? this.last : null;
     o.position.x = x;
     o.position.z = z;
     let dx = 0;
@@ -88,12 +95,16 @@ export class Missile {
       dz = z - prev.z;
     }
     const moved = Math.hypot(dx, dz);
-    if (moved > 1e-4) this.dir = { x: dx / moved, z: dz / moved };
+    if (moved > 1e-4) {
+      this.dir.x = dx / moved;
+      this.dir.z = dz / moved;
+      this.hasDir = true;
+    }
     for (const s of this.sprites) {
       const m = s.userData.mode;
       if (m === 'spin') s.material.rotation += dt * 4;
       else if (m === 'spin-fast') s.material.rotation -= dt * 9;
-      else if (m === 'aim' && this.dir) s.material.rotation = this.screenAngle();
+      else if (m === 'aim' && this.hasDir) s.material.rotation = this.screenAngle();
       const pulse = 1 + Math.sin(this.t * 18 + s.userData.size) * 0.06;
       s.scale.setScalar(s.userData.size * pulse);
     }
@@ -115,7 +126,9 @@ export class Missile {
         this.shed(prev.x + dx * k, prev.z + dz * k);
       }
     } else if (!prev) this.shed(x, z);
-    this.last = { x, z };
+    this.last.x = x;
+    this.last.z = z;
+    this.hasLast = true;
   }
 
   // The missile's travel direction as an angle on screen, for sprites that
@@ -123,15 +136,14 @@ export class Missile {
   screenAngle() {
     const cam = this.fx.camera;
     const p = this.obj.position;
-    const a = new THREE.Vector3(p.x, HEIGHT, p.z).project(cam);
-    const b = new THREE.Vector3(p.x + this.dir.x, HEIGHT, p.z + this.dir.z).project(cam);
+    const a = _a.set(p.x, HEIGHT, p.z).project(cam);
+    const b = _b.set(p.x + this.dir.x, HEIGHT, p.z + this.dir.z).project(cam);
     return Math.atan2(b.y - a.y, (b.x - a.x) * (cam.aspect || 1));
   }
 
   shed(x, z) {
     const fx = this.fx;
-    const d = this.dir || { x: 0, z: 0 };
-    const j = () => (Math.random() - 0.5) * 0.25;
+    const d = this.dir;
     switch (this.def.shed) {
       case 'fire':
         fx.fire(x + j(), HEIGHT + j(), z + j(), 1.1 + Math.random() * 0.5, 0.32 + Math.random() * 0.15, { vx: -d.x * 1.5, vy: 0.6, vz: -d.z * 1.5 });
@@ -152,7 +164,7 @@ export class Missile {
         for (let i = 0; i < 2; i++) {
           const a = Math.random() * Math.PI * 2;
           const r = 1.2 + Math.random() * 2.2;
-          fx.add.spawn(x + Math.cos(a) * r, HEIGHT - 0.3 + Math.random() * 0.6, z + Math.sin(a) * r, (-Math.cos(a) + Math.sin(a) * 0.8) * r * 2.2, 0, (-Math.sin(a) - Math.cos(a) * 0.8) * r * 2.2, new THREE.Color('#b36bff'), 0.7, 0.45, 0, 0);
+          fx.add.spawn(x + Math.cos(a) * r, HEIGHT - 0.3 + Math.random() * 0.6, z + Math.sin(a) * r, (-Math.cos(a) + Math.sin(a) * 0.8) * r * 2.2, 0, (-Math.sin(a) - Math.cos(a) * 0.8) * r * 2.2, VORTEX, 0.7, 0.45, 0, 0);
         }
         break;
     }

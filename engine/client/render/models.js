@@ -2,14 +2,60 @@
 // built from primitives so the game needs no model files. Models face +X.
 
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+
+// Geometries, materials and textures used by many models: freeing a model
+// (disposeTree) leaves these alone.
+export const SHARED = new WeakSet();
 
 const matCache = new Map();
 export function mat(color, opts = {}) {
   const key = new THREE.Color(color).getHexString() + JSON.stringify(opts);
   if (!matCache.has(key)) {
-    matCache.set(key, new THREE.MeshStandardMaterial({ color, roughness: 0.75, metalness: 0.05, flatShading: true, ...opts }));
+    const m = new THREE.MeshStandardMaterial({ color, roughness: 0.75, metalness: 0.05, flatShading: true, ...opts });
+    SHARED.add(m);
+    matCache.set(key, m);
   }
   return matCache.get(key);
+}
+
+// Frees the GPU buffers of a model that is going away (but not shared ones).
+export function disposeTree(obj, textures = false) {
+  obj.traverse((o) => {
+    if (o.isInstancedMesh) o.dispose();
+    if (o.geometry && !SHARED.has(o.geometry)) o.geometry.dispose();
+    const ms = Array.isArray(o.material) ? o.material : o.material ? [o.material] : [];
+    for (const m of ms) {
+      if (SHARED.has(m)) continue;
+      if (textures && m.map && !SHARED.has(m.map)) m.map.dispose();
+      m.dispose();
+    }
+  });
+}
+
+// Merges a group's fixed meshes into one mesh per material, so a model
+// costs a handful of draw calls rather than dozens. `keep` stays separate
+// (parts that move or are looked up). Only small parts' shadows are dropped.
+function bake(group, keep = [], noShadow = []) {
+  group.updateMatrix();
+  const byMat = new Map();
+  for (const m of [...group.children]) {
+    if (!m.isMesh || keep.includes(m) || m.children.length) continue;
+    m.updateMatrix();
+    const geo = m.geometry.index ? m.geometry.toNonIndexed() : m.geometry.clone();
+    geo.applyMatrix4(m.matrix);
+    if (!byMat.has(m.material)) byMat.set(m.material, []);
+    byMat.get(m.material).push(geo);
+    group.remove(m);
+    if (!SHARED.has(m.geometry)) m.geometry.dispose();
+  }
+  for (const [material, geos] of byMat) {
+    const merged = new THREE.Mesh(mergeGeometries(geos), material);
+    for (const g of geos) g.dispose();
+    merged.castShadow = !noShadow.includes(material);
+    merged.receiveShadow = true;
+    group.add(merged);
+  }
 }
 
 export function glowMat(color, opacity = 1) {
@@ -31,6 +77,7 @@ const G = {
   cyl: new THREE.CylinderGeometry(1, 1, 1, 10),
   box: new THREE.BoxGeometry(1, 1, 1),
 };
+for (const g of Object.values(G)) SHARED.add(g);
 
 function scaled(geo, sx, sy = sx, sz = sx) {
   const g = geo.clone();
@@ -103,8 +150,9 @@ export function warlock(color) {
     ear.rotation.x = -1.15 * s;
     ears.push(ear);
   }
-  const eyeL = mesh(scaled(G.sphere, 0.03), glowMat('#8dff6a'), 0.2, 1.6, 0.06);
-  const eyeR = mesh(scaled(G.sphere, 0.03), glowMat('#8dff6a'), 0.2, 1.6, -0.06);
+  const eyeGlow = glowMat('#8dff6a');
+  const eyeL = mesh(scaled(G.sphere, 0.03), eyeGlow, 0.2, 1.6, 0.06);
+  const eyeR = mesh(scaled(G.sphere, 0.03), eyeGlow, 0.2, 1.6, -0.06);
 
   // The staff: dark wood, a gold collar and three prongs cradling the crystal.
   const staff = new THREE.Group();
@@ -126,6 +174,9 @@ export function warlock(color) {
   staff.add(ferrule);
 
   body.add(robe, hem, tabard, tabardTrim, chest, belt, buckle, cloak, ...pads, face, hood, ...ears, eyeL, eyeR, staff);
+  const skin = mat('#e7c6a2');
+  bake(body, [], [eyeGlow, skin, face.material, teamDark, trimGold]);
+  bake(staff, [orb], [gold]);
   g.userData = { body, staff, orb, kind: 'hero' };
   return g;
 }

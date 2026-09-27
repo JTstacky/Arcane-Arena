@@ -9,6 +9,7 @@
 
 import * as THREE from 'three';
 import { LOW } from '../device.js';
+import { SHARED } from './models.js';
 
 // ------------------------------------------------------------ textures
 
@@ -91,6 +92,7 @@ export function noiseTex() {
   t.generateMipmaps = true;
   t.needsUpdate = true;
   noiseTexCache = t;
+  SHARED.add(t);
   return t;
 }
 
@@ -106,6 +108,7 @@ export function artTexture(name, fallback = softDot, { repeat = false, raw = fal
     tex.needsUpdate = true;
   });
   texCache.set(key, tex);
+  SHARED.add(tex);
   return tex;
 }
 
@@ -132,6 +135,7 @@ function streakTex() {
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
   texCache.set('streak', t);
+  SHARED.add(t);
   return t;
 }
 
@@ -330,6 +334,14 @@ class Particles {
 const _v = new THREE.Vector3();
 const _t = new THREE.Vector3();
 const _c = new THREE.Vector3();
+const _n = new THREE.Vector3();
+
+// Drops finished entries from an array in place (no new array per frame).
+function compact(list) {
+  let w = 0;
+  for (let i = 0; i < list.length; i++) if (!list[i].done) list[w++] = list[i];
+  list.length = w;
+}
 
 // A ribbon trail (WC3's ribbon emitter): the path of its head over the last
 // `life` seconds, drawn as a camera-facing strip that narrows and fades
@@ -341,6 +353,7 @@ export class Ribbon {
     this.life = life;
     this.maxPoints = maxPoints;
     this.pts = [];
+    this.free = []; // spent points, reused so a trail allocates nothing per frame
     this.time = 0;
     this.dead = false;
     const geo = new THREE.BufferGeometry();
@@ -374,8 +387,13 @@ export class Ribbon {
       last.t = this.time;
       return;
     }
-    this.pts.push({ x, y, z, t: this.time });
-    if (this.pts.length > this.maxPoints) this.pts.shift();
+    const p = this.free.pop() || {};
+    p.x = x;
+    p.y = y;
+    p.z = z;
+    p.t = this.time;
+    this.pts.push(p);
+    if (this.pts.length > this.maxPoints) this.free.push(this.pts.shift());
   }
 
   // Stops following; the trail fades out over `fade` seconds.
@@ -386,7 +404,8 @@ export class Ribbon {
 
   update(dt, camera) {
     this.time += dt;
-    const pts = (this.pts = this.pts.filter((p) => this.time - p.t < this.life));
+    const pts = this.pts;
+    while (pts.length && this.time - pts[0].t >= this.life) this.free.push(pts.shift()); // oldest first
     if (this.dead) {
       this.fadeLeft -= dt;
       this.mat.opacity = Math.max(0, this.fadeLeft / this.fadeTotal);
@@ -407,8 +426,18 @@ export class Ribbon {
       _v.crossVectors(_t, _c).normalize();
       const age = (this.time - p.t) / this.life;
       const w = this.width * 0.5 * (1 - age * 0.7);
-      this.posArr.set([p.x + _v.x * w, p.y + _v.y * w, p.z + _v.z * w, p.x - _v.x * w, p.y - _v.y * w, p.z - _v.z * w], i * 6);
-      this.uvArr.set([age, 0, age, 1], i * 4);
+      const P = this.posArr;
+      const j = i * 6;
+      P[j] = p.x + _v.x * w;
+      P[j + 1] = p.y + _v.y * w;
+      P[j + 2] = p.z + _v.z * w;
+      P[j + 3] = p.x - _v.x * w;
+      P[j + 4] = p.y - _v.y * w;
+      P[j + 5] = p.z - _v.z * w;
+      const U = this.uvArr;
+      U[i * 4] = U[i * 4 + 2] = age;
+      U[i * 4 + 1] = 0;
+      U[i * 4 + 3] = 1;
     }
     this.geo.attributes.position.needsUpdate = true;
     this.geo.attributes.uv.needsUpdate = true;
@@ -600,8 +629,7 @@ export class Effects {
         _t.copy(b).sub(a).normalize();
         _c.copy(this.camera.position).sub(mesh.position);
         _v.crossVectors(_t, _c).normalize();
-        const n = new THREE.Vector3().crossVectors(_t, _v);
-        mesh.matrix.makeBasis(_t, _v, n);
+        mesh.matrix.makeBasis(_t, _v, _n.crossVectors(_t, _v));
         mesh.quaternion.setFromRotationMatrix(mesh.matrix);
         mesh.scale.set(len, width, 1);
         mat.map.repeat.set(Math.max(1, len / (width * 3)), 1);
@@ -682,8 +710,8 @@ export class Effects {
         tr.done = true;
       }
     }
-    this.transients = this.transients.filter((t) => !t.done);
-    const v = new THREE.Vector3();
+    compact(this.transients);
+    const v = _n;
     for (const t of this.texts) {
       t.t += dt;
       const k = t.t / t.dur;
@@ -697,7 +725,7 @@ export class Effects {
         t.done = true;
       }
     }
-    this.texts = this.texts.filter((t) => !t.done);
+    compact(this.texts);
   }
 
   clear() {

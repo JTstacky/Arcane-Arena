@@ -66,8 +66,11 @@ export class Room {
         p.connected = true;
         p.name = name || p.name;
         this.emptySince = null;
+        // Everyone else left meanwhile: the room is theirs to run again.
+        if (this.hostId == null || !this.isConnected(this.hostId)) this.hostId = p.id;
         this.welcome(p);
         this.system(`${p.name} reconnected.`);
+        this.broadcastLobby();
         return p;
       }
     }
