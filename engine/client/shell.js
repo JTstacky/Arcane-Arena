@@ -42,6 +42,7 @@ export function renderShell(cfg) {
           <button id="join" class="btn big">Join</button>
         </div>
         <div class="modes">${cfg.pills.map((p) => `<div class="mode-pill">${p}</div>`).join('')}</div>
+        <button id="menu-options" class="linkbtn" type="button">⚙ Settings</button>
         <p class="fine">Play solo against bots, or host and share the code or link with friends.${cfg.p2p ? ' The host’s browser runs the game — keep that tab open.' : ''}</p>
         ${cfg.otherGame ? `<p class="fine other">Also on Teng Games: <a href="${cfg.otherGame.href}">${escapeHtml(cfg.otherGame.title)}</a>${cfg.homeHref ? ` · <a href="${cfg.homeHref}">All games</a>` : ''}</p>` : ''}
       </div>
@@ -85,6 +86,14 @@ export function renderShell(cfg) {
         <h2>Options</h2>
         ${cfg.quickCast ? '<label class="check"><input type="checkbox" id="opt-quick" /> Quick-cast (spells fire at the cursor on keypress)</label>' : ''}
         <label class="check"><input type="checkbox" id="opt-mute" /> Mute sound (M)</label>
+        <label class="field optsel">Controls
+          <select id="opt-controls">
+            <option value="auto">Automatic: touch controls on touchscreens</option>
+            <option value="touch">Touch: phone layout (joystick and taps)</option>
+            <option value="mouse">Mouse and keyboard (Warcraft III style)</option>
+          </select>
+        </label>
+        <p id="opt-controls-note" class="fine" hidden></p>
         <div class="keys">${keys}</div>
         <button id="opt-close" class="btn primary">Close</button>
       </div>

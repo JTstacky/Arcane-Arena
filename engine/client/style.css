@@ -386,3 +386,9 @@ body.touch.shopping #unitinfo, body.touch.shopping #chat, body.touch.shopping #m
 #spectate button { width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--gold-dim); background: #2c2217; color: var(--gold); font-size: 13px; cursor: pointer; touch-action: manipulation; }
 #spec-label { padding: 0 4px; font-weight: 600; }
 body.touch #spectate { top: 38px; font-size: 12px; }
+
+/* Settings: the controls picker, and the start menu's settings link. */
+.optsel { margin: 12px 0 4px; }
+.optsel select { font: inherit; color: var(--text); background: rgba(0, 0, 0, 0.45); border: 1px solid var(--edge); border-radius: 7px; padding: 8px 10px; }
+.linkbtn { background: none; border: none; color: var(--gold); cursor: pointer; font-weight: 600; margin-top: 12px; padding: 4px 8px; }
+.linkbtn:hover { text-decoration: underline; }

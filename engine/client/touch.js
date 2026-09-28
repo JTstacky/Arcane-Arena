@@ -11,6 +11,7 @@
 //  - the camera always follows the hero at a fixed distance (no zoom or pan).
 
 import { unlockAudio } from './audio.js';
+import { PHONE } from './device.js';
 
 const RESEND_MS = 100;
 const AHEAD = 3; // metres ahead of the hero the joystick's move order points
@@ -88,6 +89,7 @@ export class Touch {
   }
 
   fullscreen() {
+    if (!PHONE) return; // not on touchscreen laptops and desktops
     const d = document.documentElement;
     if (document.fullscreenElement || !d.requestFullscreen) return;
     d.requestFullscreen({ navigationUI: 'hide' })

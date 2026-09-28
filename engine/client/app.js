@@ -9,7 +9,7 @@ import { World, escapeHtml } from './render/world.js';
 import { Input } from './input.js';
 import { Touch } from './touch.js';
 import { Predictor } from './predict.js';
-import { TOUCH } from './device.js';
+import { TOUCH, CONTROLS, setControls } from './device.js';
 import { play, unlockAudio, toggleMute, isMuted } from './audio.js';
 import { renderShell } from './shell.js';
 import { PLAYER_COLORS } from '../shared/constants.js';
@@ -379,6 +379,24 @@ export function startApp(cfg) {
   }
   $('opt-mute').checked = isMuted();
   $('opt-mute').onchange = () => toggleMute();
+  $('menu-options').onclick = () => ($('options').hidden = false);
+
+  // Controls: touch (phone layout) or mouse and keyboard. Switching rebuilds
+  // the page, so it reloads at once unless that would end a game you host
+  // for other people (guests who reload rejoin their seat automatically).
+  $('opt-controls').value = CONTROLS;
+  $('opt-controls').onchange = (e) => {
+    const note = $('opt-controls-note');
+    if (!setControls(e.target.value)) {
+      note.hidden = true;
+      return;
+    }
+    const hostingOthers = net.isHost && state.lobby?.players.some((p) => !p.bot && p.id !== state.myId);
+    if (hostingOthers) {
+      note.textContent = 'Saved. It takes effect when you reload the page; you are hosting, so wait until the game is over.';
+      note.hidden = false;
+    } else location.reload();
+  };
 
   // Handy for debugging from the console.
   window.game = { send, state, world, net };
