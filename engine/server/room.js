@@ -270,11 +270,10 @@ export class Room {
         snap.t = 'snap';
         snap.tk = this.tickCount;
         snap.ev = events.filter((e) => e.to == null || e.to === p.id);
-        // A snapshot without events can be skipped by a congested connection:
-        // the next one supersedes it.
-        if (!snap.ev.length && p.ws?.canDrop) {
-          if (p.ws.readyState === 1) p.ws.send(JSON.stringify(snap), true);
-        } else this.sendTo(p, snap);
+        // Connections that compress snapshots (see shared/snapcodec.js) take
+        // the object; others get it as JSON.
+        if (p.ws?.snap) p.ws.readyState === 1 && p.ws.snap(snap);
+        else this.sendTo(p, snap);
       }
     }
     if (g.over) {

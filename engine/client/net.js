@@ -12,6 +12,7 @@
 
 import { Peer } from 'peerjs';
 import { randomCode } from '../server/hub.js';
+import { SnapDecoder } from '../shared/snapcodec.js';
 
 const TOKEN_KEY = 'tenggames-token';
 
@@ -192,7 +193,22 @@ const RELAY_ONLY = typeof location !== 'undefined' && new URLSearchParams(locati
 const DIRECT_MS = 5000; // how long a direct connection gets before trying the relay
 const RELAY_OPEN_MS = 12000;
 const HEARTBEAT_MS = 25000;
-const BACKLOG = 65536; // bytes queued before replaceable snapshots are skipped
+const BACKLOG = 65536; // bytes queued before snapshots are skipped
+const LOSSY_ID = 7; // data channel id of the snapshot channel
+
+// A second channel on the same WebRTC connection, for snapshots: unordered
+// and never resent, so a lost packet doesn't hold up the ones behind it the
+// way it does on PeerJS's reliable channel (a newer snapshot will be along in
+// 60 ms anyway). "negotiated" means both sides simply open it with the same
+// id, so it needs no extra signalling. Snapshots that are lost are handled by
+// the snapshot codec (shared/snapcodec.js).
+function lossyChannel(dc) {
+  try {
+    return dc.peerConnection?.createDataChannel('snap', { negotiated: true, id: LOSSY_ID, ordered: false, maxRetransmits: 0 }) || null;
+  } catch {
+    return null;
+  }
+}
 
 // The hosting player's side. The room runs in a Web Worker: browsers throttle
 // timers on background tabs, but not in workers, so the game keeps running
@@ -271,12 +287,22 @@ class P2PHost {
   acceptPeer(dc) {
     const id = String(this.nextConn++);
     dc.on('open', () => {
+      const lc = lossyChannel(dc);
       this.conns.set(id, {
         send: (d) => dc.send(d),
-        close: () => dc.close(),
+        sendLossy: (d) => (lc?.readyState === 'open' ? lc.send(d) : dc.send(d)),
+        close: () => {
+          lc?.close();
+          dc.close();
+        },
         backlog: () => (dc.bufferSize > 0 ? Infinity : dc.dataChannel?.bufferedAmount || 0),
       });
       this.worker.postMessage({ type: 'open', conn: id });
+      if (lc) {
+        lc.onopen = () => this.conns.has(id) && this.worker.postMessage({ type: 'lossy', conn: id, on: true });
+        lc.onclose = () => this.conns.has(id) && this.worker.postMessage({ type: 'lossy', conn: id, on: false });
+        lc.onmessage = (e) => this.conns.has(id) && this.worker.postMessage({ type: 'message', conn: id, data: String(e.data) });
+      }
     });
     dc.on('data', (data) => this.worker.postMessage({ type: 'message', conn: id, data: String(data) }));
     dc.on('close', () => this.gone(id));
@@ -359,13 +385,30 @@ class P2PHost {
     if (m.type === 'send') {
       if (m.conn === 'local') return this.net.onMessage(JSON.parse(m.data));
       const c = this.conns.get(m.conn);
-      // A backed-up connection skips replaceable snapshots rather than
-      // queueing stale state behind them (the channels are reliable).
-      if (!c || (m.drop && c.backlog() > BACKLOG)) return;
-      c.send(m.data);
+      if (!c) return;
+      if (m.lossy && c.sendLossy) c.sendLossy(m.data);
+      else c.send(m.data);
+      this.checkBusy(m.conn, c);
     } else if (m.type === 'close') {
       this.conns.get(m.conn)?.close();
     }
+  }
+
+  // A player whose send buffer backs up skips snapshots (the worker keeps
+  // their events for the next one) rather than queueing stale state; it's
+  // told when the buffer has drained.
+  checkBusy(id, c) {
+    const busy = c.backlog() > BACKLOG;
+    if (busy === !!c.busy) return;
+    c.busy = busy;
+    this.worker.postMessage({ type: 'busy', conn: id, on: busy });
+    if (!busy) return;
+    const poll = setInterval(() => {
+      if (this.closed || this.conns.get(id) !== c) return clearInterval(poll);
+      if (c.backlog() > BACKLOG) return;
+      clearInterval(poll);
+      this.checkBusy(id, c);
+    }, 50);
   }
 
   send(m) {
@@ -424,6 +467,7 @@ class P2PClient {
     clearTimeout(this.dialTimer);
     const dc = this.dc;
     this.dc = null;
+    this.dropLossy();
     dc?.close();
     this.peer?.destroy();
     this.peer = null;
@@ -474,11 +518,17 @@ class P2PClient {
         if (this.dc !== dc) return dc.close();
         clearTimeout(this.dialTimer);
         this.opened();
+        this.dropLossy();
+        const lc = lossyChannel(dc);
+        this.lc = lc;
+        if (lc) lc.onmessage = (e) => this.dc === dc && this.receive(String(e.data));
         dc.send(JSON.stringify(this.hello));
       });
-      dc.on('data', (data) => this.receive(String(data)));
+      dc.on('data', (data) => this.dc === dc && this.receive(String(data)));
       dc.on('close', () => {
-        if (this.dc === dc && !this.closed) this.lost();
+        if (this.dc !== dc || this.closed) return;
+        this.dropLossy();
+        this.lost();
       });
     };
     if (peer.open) go();
@@ -504,7 +554,7 @@ class P2PClient {
     };
     ws.onmessage = (e) => {
       const s = String(e.data);
-      if (s !== '~') this.receive(s);
+      if (s !== '~' && this.ws === ws) this.receive(s);
     };
     ws.onclose = (e) => {
       if (this.ws !== ws || this.closed) return;
@@ -527,11 +577,26 @@ class P2PClient {
   opened() {
     this.retry = 0;
     this.attempt = 0;
+    // Each connection is a new snapshot stream from the host.
+    this.dec = new SnapDecoder();
     this.net.onStatus('open');
+  }
+
+  dropLossy() {
+    this.lc?.close();
+    this.lc = null;
   }
 
   receive(data) {
     const m = JSON.parse(data);
+    if (m.t === 'd') {
+      // A compressed snapshot (shared/snapcodec.js).
+      const snap = this.dec?.decode(m);
+      if (!snap) return;
+      // Over the lossy channel the host only builds on snapshots we confirm.
+      if (m.a) this.sendRaw(`a${m.s}`, true);
+      return this.net.onMessage(snap);
+    }
     if (m.t === 'welcome') {
       this.joined = true;
       this.hello = { t: 'join', code: m.code, name: this.hello.name, token: this.hello.token };
@@ -557,14 +622,20 @@ class P2PClient {
   }
 
   send(m) {
-    if (this.ws?.readyState === 1) this.ws.send(JSON.stringify(m));
-    else if (this.dc?.open) this.dc.send(JSON.stringify(m));
+    this.sendRaw(JSON.stringify(m));
+  }
+
+  sendRaw(data, lossy) {
+    if (this.ws?.readyState === 1) this.ws.send(data);
+    else if (lossy && this.lc?.readyState === 'open') this.lc.send(data);
+    else if (this.dc?.open) this.dc.send(data);
   }
 
   close() {
     this.closed = true;
     clearTimeout(this.dialTimer);
     clearInterval(this.beat);
+    this.dropLossy();
     this.dc?.close();
     this.peer?.destroy();
     const ws = this.ws;

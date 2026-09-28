@@ -70,7 +70,10 @@ docs/     research.md: findings from the original Warlock 1.02 map (rules, spell
 **Networking.** The simulation runs in WC3's 0.03 s steps (33.3 Hz) on the host, and snapshots go out every other step. Clients send only orders and interpolate between snapshots.
 
 - **Peer-to-peer (default):** the host's browser runs the room in a Web Worker, and guests connect over WebRTC via [PeerJS](https://peerjs.com). The public PeerJS server only introduces players. To use your own, build with `VITE_PEER_HOST` and related variables.
+- **Relay fallback:** guests who can't connect directly (mobile data, strict wifi) switch to the Teng Games WebSocket relay on Cloudflare after 5 seconds.
 - **Dedicated:** `server.js` runs the same room code behind a WebSocket.
+
+Snapshots are sent as small deltas, over a lossy WebRTC channel where possible, and your own warlock is predicted so it responds instantly. **[docs/multiplayer.md](docs/multiplayer.md)** explains the whole stack, every setting, and how to reuse it in a new game.
 
 The engine is copied here and in [Hammerguy's Party](https://github.com/JTstacky/Hammerguy-s-Party). Port engine fixes across when they matter to both games.
 

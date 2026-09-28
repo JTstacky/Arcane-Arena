@@ -34,6 +34,8 @@ export function createHub(gameDef, { makeCode } = {}) {
 
     return {
       message(raw) {
+        // "a<seq>": the player has snapshot <seq> (shared/snapcodec.js).
+        if (raw[0] === 'a') return conn.ack?.(+raw.slice(1));
         let m;
         try {
           m = JSON.parse(raw);
