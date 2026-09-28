@@ -161,75 +161,208 @@ class WsClient {
 
 // ----------------------------------------------------------------- p2p
 
+// The relay (see relay/ in the Teng Games site repo): a Cloudflare Worker
+// that forwards messages between the host and guests when a direct WebRTC
+// connection can't be made. Its address comes from /relay.json on the site
+// (so it can change without rebuilding the games), VITE_RELAY_URL at build
+// time, or ?relay=wss://… in the page URL for testing (?relay=off disables it).
+// ?net=relay skips the direct attempt and always uses the relay.
+let relayPromise = null;
+export function relayUrl() {
+  if (!relayPromise) {
+    relayPromise = (async () => {
+      const q = new URLSearchParams(location.search).get('relay');
+      if (q) return q === 'off' ? null : q.replace(/\/$/, '');
+      const env = import.meta.env?.VITE_RELAY_URL;
+      if (env) return env.replace(/\/$/, '');
+      try {
+        const r = await fetch('/relay.json', { cache: 'no-store' });
+        if (r.ok) {
+          const j = await r.json();
+          if (typeof j.url === 'string' && /^wss?:\/\//.test(j.url)) return j.url.replace(/\/$/, '');
+        }
+      } catch {}
+      return null;
+    })();
+  }
+  return relayPromise;
+}
+
+const RELAY_ONLY = typeof location !== 'undefined' && new URLSearchParams(location.search).get('net') === 'relay';
+const DIRECT_MS = 5000; // how long a direct connection gets before trying the relay
+const RELAY_OPEN_MS = 12000;
+const HEARTBEAT_MS = 25000;
+const BACKLOG = 65536; // bytes queued before replaceable snapshots are skipped
+
 // The hosting player's side. The room runs in a Web Worker: browsers throttle
 // timers on background tabs, but not in workers, so the game keeps running
-// at full speed if the host alt-tabs.
+// at full speed if the host alt-tabs. Guests reach it directly over WebRTC
+// (PeerJS) or, when that fails, through the relay; the host listens on both.
 class P2PHost {
   constructor(hello, net) {
     this.net = net;
     this.hello = hello;
-    this.conns = new Map(); // conn id -> DataConnection
+    this.conns = new Map(); // conn id -> { send(data), close(), backlog() }
     this.nextConn = 1;
-    this.worker = net.p2p.createWorker();
+    this.boot(0);
+  }
+
+  boot(attempt) {
+    this.attempt = attempt;
+    this.code = randomCode();
+    this.started = false;
+    this.peerDown = RELAY_ONLY;
+    this.relayDown = false;
+    this.worker = this.net.p2p.createWorker();
     this.worker.onmessage = (e) => this.fromWorker(e.data);
     this.worker.onerror = (e) => {
       console.error('Host worker error', e);
-      net.onMessage({ t: 'error', text: 'The game host crashed. Please reload.' });
+      this.net.onMessage({ t: 'error', text: 'The game host crashed. Please reload.' });
     };
-    this.start(0);
+    if (!RELAY_ONLY) this.startPeer();
+    relayUrl().then((url) => {
+      if (this.closed || this.attempt !== attempt) return;
+      this.relayBase = url;
+      if (url) this.openRelay();
+      else this.relayFailed();
+    });
   }
 
-  start(attempt) {
-    this.code = randomCode();
-    this.peer = new Peer(`${this.net.p2p.prefix}-${this.code}`, peerOptions());
-    this.peer.on('open', () => {
-      this.worker.postMessage({ type: 'init', code: this.code });
-      this.worker.postMessage({ type: 'open', conn: 'local', local: true });
-      this.send(this.hello);
-      this.net.onStatus('open');
+  // The room opens as soon as either way in (direct or relay) is ready.
+  start() {
+    if (this.started) return;
+    this.started = true;
+    this.worker.postMessage({ type: 'init', code: this.code });
+    this.worker.postMessage({ type: 'open', conn: 'local', local: true });
+    this.send(this.hello);
+    this.net.onStatus('open');
+  }
+
+  // Someone else is already hosting this code: start over with a new one.
+  restart() {
+    if (this.attempt >= 5 || [...this.conns.keys()].length) return;
+    this.teardown();
+    this.boot(this.attempt + 1);
+  }
+
+  startPeer() {
+    const peer = new Peer(`${this.net.p2p.prefix}-${this.code}`, peerOptions());
+    this.peer = peer;
+    peer.on('open', () => {
+      this.peerDown = false;
+      this.start();
     });
-    this.peer.on('connection', (dc) => this.accept(dc));
-    this.peer.on('disconnected', () => {
+    peer.on('connection', (dc) => this.acceptPeer(dc));
+    peer.on('disconnected', () => {
       // Lost the signalling server: keep hosting, and reconnect so new
-      // players can still join. Existing peers are unaffected.
-      if (!this.closed) setTimeout(() => !this.closed && this.peer.reconnect(), 1000);
+      // players can still join directly. Existing players are unaffected.
+      if (!this.closed && this.peer === peer) setTimeout(() => !this.closed && !peer.destroyed && peer.reconnect(), 1500);
     });
-    this.peer.on('error', (err) => {
-      if (err.type === 'unavailable-id' && attempt < 5) {
-        this.peer.destroy();
-        this.start(attempt + 1);
-      } else if (err.type === 'network' || err.type === 'server-error' || err.type === 'socket-error') {
-        this.net.onMessage({ t: 'error', text: 'Could not reach the matchmaking server. Check your connection.' });
-      } else if (err.type !== 'peer-unavailable') {
-        console.warn('PeerJS error', err);
-      }
+    peer.on('error', (err) => {
+      if (this.peer !== peer) return;
+      if (err.type === 'unavailable-id') this.restart();
+      else if (err.type === 'network' || err.type === 'server-error' || err.type === 'socket-error') {
+        this.peerDown = true;
+        if (this.relayDown) this.unreachable();
+      } else if (err.type !== 'peer-unavailable') console.warn('PeerJS error', err);
     });
   }
 
-  accept(dc) {
+  acceptPeer(dc) {
     const id = String(this.nextConn++);
     dc.on('open', () => {
-      this.conns.set(id, dc);
+      this.conns.set(id, {
+        send: (d) => dc.send(d),
+        close: () => dc.close(),
+        backlog: () => (dc.bufferSize > 0 ? Infinity : dc.dataChannel?.bufferedAmount || 0),
+      });
       this.worker.postMessage({ type: 'open', conn: id });
     });
     dc.on('data', (data) => this.worker.postMessage({ type: 'message', conn: id, data: String(data) }));
-    const gone = () => {
-      if (!this.conns.has(id)) return;
-      this.conns.delete(id);
-      this.worker.postMessage({ type: 'closed', conn: id });
+    dc.on('close', () => this.gone(id));
+    dc.on('error', () => this.gone(id));
+  }
+
+  openRelay() {
+    const ws = new WebSocket(`${this.relayBase}/${this.net.p2p.prefix}/${this.code}?role=host`);
+    this.rws = ws;
+    ws.onopen = () => {
+      this.relayDown = false;
+      this.start();
+      clearInterval(this.beat);
+      this.beat = setInterval(() => ws.readyState === 1 && ws.send('~'), HEARTBEAT_MS);
     };
-    dc.on('close', gone);
-    dc.on('error', gone);
+    ws.onmessage = (e) => {
+      const s = String(e.data);
+      if (s === '~') return;
+      if (s[0] === '+') {
+        const gid = s.slice(1);
+        const id = `r${gid}`;
+        this.conns.set(id, {
+          send: (d) => this.relaySend(+gid, d),
+          close: () => ws.readyState === 1 && ws.send(`x|${gid}`),
+          backlog: () => ws.bufferedAmount,
+        });
+        this.worker.postMessage({ type: 'open', conn: id });
+      } else if (s[0] === '-') {
+        this.gone(`r${s.slice(1)}`);
+      } else {
+        const i = s.indexOf('|');
+        if (i > 0) this.worker.postMessage({ type: 'message', conn: `r${s.slice(0, i)}`, data: s.slice(i + 1) });
+      }
+    };
+    ws.onclose = (e) => {
+      if (this.rws !== ws) return;
+      clearInterval(this.beat);
+      for (const id of [...this.conns.keys()]) if (id[0] === 'r') this.gone(id);
+      if (this.closed) return;
+      if (e.code === 4409) return this.restart();
+      if (e.code === 4403) console.warn('The relay does not accept this page\'s address (ALLOWED_ORIGINS).');
+      if (!this.started) {
+        this.relayDown = true;
+        if (this.peerDown) this.unreachable();
+      }
+      // Keep trying: relayed players reconnect and rejoin their seats.
+      setTimeout(() => !this.closed && this.rws === ws && this.openRelay(), 3000);
+    };
+  }
+
+  // Everything sent to relayed guests in one turn goes out as one frame.
+  relaySend(gid, data) {
+    (this.rq ||= []).push([gid, data]);
+    if (this.rqTimer) return;
+    this.rqTimer = setTimeout(() => {
+      this.rqTimer = 0;
+      const q = this.rq;
+      this.rq = [];
+      if (this.rws?.readyState === 1 && q.length) this.rws.send(JSON.stringify(q));
+    }, 0);
+  }
+
+  relayFailed() {
+    this.relayDown = true;
+    if (this.peerDown) this.unreachable();
+  }
+
+  unreachable() {
+    if (this.started || this.closed) return;
+    this.net.onMessage({ t: 'error', text: 'Could not reach the matchmaking server. Check your internet connection and try again.', fatal: true });
+  }
+
+  gone(id) {
+    if (!this.conns.has(id)) return;
+    this.conns.delete(id);
+    this.worker.postMessage({ type: 'closed', conn: id });
   }
 
   fromWorker(m) {
     if (m.type === 'send') {
       if (m.conn === 'local') return this.net.onMessage(JSON.parse(m.data));
-      const dc = this.conns.get(m.conn);
-      // A backed-up channel skips replaceable snapshots rather than queueing
-      // stale state behind them (the channel is reliable and ordered).
-      if (!dc || (m.drop && (dc.dataChannel?.bufferedAmount > 65536 || dc.bufferSize > 0))) return;
-      dc.send(m.data);
+      const c = this.conns.get(m.conn);
+      // A backed-up connection skips replaceable snapshots rather than
+      // queueing stale state behind them (the channels are reliable).
+      if (!c || (m.drop && c.backlog() > BACKLOG)) return;
+      c.send(m.data);
     } else if (m.type === 'close') {
       this.conns.get(m.conn)?.close();
     }
@@ -239,77 +372,171 @@ class P2PHost {
     this.worker.postMessage({ type: 'message', conn: 'local', data: JSON.stringify(m) });
   }
 
+  teardown() {
+    for (const c of this.conns.values()) c.close();
+    this.conns.clear();
+    clearInterval(this.beat);
+    this.worker?.terminate();
+    this.peer?.destroy();
+    const ws = this.rws;
+    this.rws = null;
+    ws?.close();
+  }
+
   close() {
     this.closed = true;
-    for (const dc of this.conns.values()) dc.close();
-    this.worker.terminate();
-    this.peer?.destroy();
+    this.teardown();
   }
 }
 
-// A player joining someone else's game.
+// A player joining someone else's game: directly over WebRTC when possible,
+// otherwise through the relay.
 class P2PClient {
   constructor(hello, net) {
     this.net = net;
     this.hello = hello;
     this.retry = 0; // redials after losing an established connection
-    this.attempt = 0; // dials that never opened
-    this.peer = new Peer(peerOptions());
-    this.peer.on('open', () => this.dial());
-    this.peer.on('disconnected', () => {
-      // Lost the signalling server; it is only needed to (re)dial the host.
-      if (!this.closed) setTimeout(() => !this.closed && !this.peer.destroyed && this.peer.reconnect(), 1000);
+    this.attempt = 0; // direct dials that never opened (no relay available)
+    this.mode = RELAY_ONLY ? 'relay' : 'direct';
+    net.onStatus('connecting');
+    relayUrl().then((url) => {
+      this.relayBase = url;
+      if (!this.closed) this.dial();
     });
-    this.peer.on('error', (err) => {
-      if (err.type === 'peer-unavailable') {
-        clearTimeout(this.dialTimer);
-        if (this.joined) this.lost();
-        else this.fail('No game with that code — or its host has left.');
-      } else if (err.type === 'network' || err.type === 'server-error' || err.type === 'socket-error') {
-        if (!this.joined) this.fail('Could not reach the matchmaking server. Check your internet connection and try again.');
-      } else console.warn('PeerJS error', err);
-    });
+  }
+
+  get code() {
+    return String(this.hello.code).toUpperCase();
   }
 
   dial() {
     if (this.closed) return;
-    const code = String(this.hello.code).toUpperCase();
-    const dc = this.peer.connect(`${this.net.p2p.prefix}-${code}`, { reliable: true, serialization: 'raw' });
-    this.dc = dc;
     this.net.onStatus(this.joined ? 'reconnecting' : 'connecting');
-    // Across the internet the connection may need a relay, which can take a
-    // few seconds; if the channel never opens, try again, then give up with
-    // an explanation instead of waiting forever.
+    if (this.mode === 'relay') this.dialRelay();
+    else this.dialDirect();
+  }
+
+  // Switches to the relay (once); false if there is none.
+  useRelay() {
+    if (!this.relayBase) return false;
+    if (this.mode === 'relay') return true;
+    this.mode = 'relay';
+    clearTimeout(this.dialTimer);
+    const dc = this.dc;
+    this.dc = null;
+    dc?.close();
+    this.peer?.destroy();
+    this.peer = null;
+    this.dialRelay();
+    return true;
+  }
+
+  dialDirect() {
+    if (!this.peer || this.peer.destroyed) {
+      const peer = new Peer(peerOptions());
+      this.peer = peer;
+      peer.on('disconnected', () => {
+        if (!this.closed && this.peer === peer) setTimeout(() => !this.closed && !peer.destroyed && peer.reconnect(), 1000);
+      });
+      peer.on('error', (err) => {
+        if (this.peer !== peer || this.closed) return;
+        if (err.type === 'peer-unavailable') {
+          // The host may only be reachable through the relay.
+          clearTimeout(this.dialTimer);
+          if (this.useRelay()) return;
+          if (this.joined) this.lost();
+          else this.fail('No game with that code — or its host has left.');
+        } else if (err.type === 'network' || err.type === 'server-error' || err.type === 'socket-error') {
+          if (this.useRelay()) return;
+          if (!this.joined) this.fail('Could not reach the matchmaking server. Check your internet connection and try again.');
+        } else console.warn('PeerJS error', err);
+      });
+    }
+    const peer = this.peer;
+    const go = () => {
+      if (this.peer !== peer || this.closed) return;
+      const dc = peer.connect(`${this.net.p2p.prefix}-${this.code}`, { reliable: true, serialization: 'raw' });
+      this.dc = dc;
+      // A direct connection that hasn't opened in a few seconds won't: the
+      // networks in between block it. Use the relay instead.
+      clearTimeout(this.dialTimer);
+      this.dialTimer = setTimeout(() => {
+        if (this.dc !== dc || dc.open || this.closed) return;
+        if (this.useRelay()) return;
+        this.dc = null;
+        dc.close();
+        this.attempt++;
+        if (this.attempt < DIAL_ATTEMPTS) this.dial();
+        else if (this.joined) this.lost();
+        else this.fail("Couldn't connect to the host's game. One of your networks may be blocking direct connections (common on school, office or some mobile networks). Try again, try another network, or let someone else host.");
+      }, this.relayBase ? DIRECT_MS : DIAL_TIMEOUT_MS);
+      dc.on('open', () => {
+        if (this.dc !== dc) return dc.close();
+        clearTimeout(this.dialTimer);
+        this.opened();
+        dc.send(JSON.stringify(this.hello));
+      });
+      dc.on('data', (data) => this.receive(String(data)));
+      dc.on('close', () => {
+        if (this.dc === dc && !this.closed) this.lost();
+      });
+    };
+    if (peer.open) go();
+    else peer.once('open', go);
+  }
+
+  dialRelay() {
+    const ws = new WebSocket(`${this.relayBase}/${this.net.p2p.prefix}/${this.code}?role=guest`);
+    this.ws = ws;
+    let open = false;
     clearTimeout(this.dialTimer);
     this.dialTimer = setTimeout(() => {
-      if (this.dc !== dc || dc.open || this.closed) return;
-      this.dc = null;
-      dc.close();
-      this.attempt++;
-      if (this.attempt < DIAL_ATTEMPTS) this.dial();
-      else if (this.joined) this.lost();
-      else {
-        this.fail("Couldn't connect to the host's game. One of your networks may be blocking direct connections (common on school, office or some mobile networks). Try again, try another network, or let someone else host.");
-      }
-    }, DIAL_TIMEOUT_MS);
-    dc.on('open', () => {
+      if (this.ws === ws && !open) ws.close();
+    }, RELAY_OPEN_MS);
+    ws.onopen = () => {
+      if (this.ws !== ws) return ws.close();
+      open = true;
       clearTimeout(this.dialTimer);
-      this.retry = 0;
-      this.attempt = 0;
-      this.net.onStatus('open');
-      dc.send(JSON.stringify(this.hello));
-    });
-    dc.on('data', (data) => {
-      const m = JSON.parse(String(data));
-      if (m.t === 'welcome') {
-        this.joined = true;
-        this.hello = { t: 'join', code: m.code, name: this.hello.name, token: this.hello.token };
+      this.opened();
+      ws.send(JSON.stringify(this.hello));
+      clearInterval(this.beat);
+      this.beat = setInterval(() => ws.readyState === 1 && ws.send('~'), HEARTBEAT_MS);
+    };
+    ws.onmessage = (e) => {
+      const s = String(e.data);
+      if (s !== '~') this.receive(s);
+    };
+    ws.onclose = (e) => {
+      if (this.ws !== ws || this.closed) return;
+      clearTimeout(this.dialTimer);
+      clearInterval(this.beat);
+      this.ws = null;
+      if (e.code === 4410) {
+        this.net.onMessage({ t: 'hostLeft' });
+        return this.close();
       }
-      this.net.onMessage(m);
-    });
-    dc.on('close', () => {
-      if (this.dc === dc && !this.closed) this.lost();
-    });
+      if (e.code === 4404) {
+        if (this.joined) return this.lost();
+        return this.fail('No game with that code — or its host has left.');
+      }
+      if (!open && !this.joined) return this.fail("Couldn't reach the game. Check your internet connection and try again.");
+      this.lost();
+    };
+  }
+
+  opened() {
+    this.retry = 0;
+    this.attempt = 0;
+    this.net.onStatus('open');
+  }
+
+  receive(data) {
+    const m = JSON.parse(data);
+    if (m.t === 'welcome') {
+      this.joined = true;
+      this.hello = { t: 'join', code: m.code, name: this.hello.name, token: this.hello.token };
+    }
+    this.net.onMessage(m);
   }
 
   fail(text) {
@@ -330,13 +557,18 @@ class P2PClient {
   }
 
   send(m) {
-    if (this.dc?.open) this.dc.send(JSON.stringify(m));
+    if (this.ws?.readyState === 1) this.ws.send(JSON.stringify(m));
+    else if (this.dc?.open) this.dc.send(JSON.stringify(m));
   }
 
   close() {
     this.closed = true;
     clearTimeout(this.dialTimer);
+    clearInterval(this.beat);
     this.dc?.close();
     this.peer?.destroy();
+    const ws = this.ws;
+    this.ws = null;
+    ws?.close();
   }
 }
