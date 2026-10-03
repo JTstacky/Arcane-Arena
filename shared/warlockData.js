@@ -65,7 +65,8 @@ export const SPELLS = {
     cost: 0, upCost: [7, 7, 7, 7, 7, 7], maxLevel: 7,
     desc: 'A fast bolt of fire that knocks back the first warlock it hits. Destroys enemy projectiles it meets. Lightning detonates it.',
     // 30 units per 0.03 s step for 33 steps; hits anything within 75 units of its centre.
-    cd: 4.8, dmg: lin(7, 10), speed: 1000 * UNIT, range: 990 * UNIT, radius: 50 * UNIT,
+    // Each level also adds 60 units of range (not in the original map).
+    cd: 4.8, dmg: lin(7, 10), speed: 1000 * UNIT, range: lin(990, 1350).map((v) => v * UNIT), radius: 50 * UNIT,
   },
   scourge: {
     name: 'Scourge', icon: '💥', color: '#c050ff', slot: 7,
@@ -130,7 +131,8 @@ export const SPELLS = {
     name: 'Meteor', icon: '☄️', color: '#ff4a1a', slot: 4,
     cost: 14, upCost: [6, 7, 8, 9, 10, 11], maxLevel: 7,
     desc: 'Calls a meteor down on the target point. Huge knockback at the centre of the impact.',
-    cd: lin(20, 17), dmgMin: lin(4, 10), dmg: lin(11, 17), aoe: [225, 237, 248, 260, 271, 283, 294].map((v) => v * UNIT), range: 1000 * UNIT, delay: 1.15,
+    // Hits harder than the original map's 4–11 / 11–17 (playtest feedback).
+    cd: lin(20, 17), dmgMin: lin(6, 13), dmg: lin(16, 25), aoe: [225, 237, 248, 260, 271, 283, 294].map((v) => v * UNIT), range: 1000 * UNIT, delay: 1.15,
   },
   windwalk: {
     name: 'Windwalk', icon: '👻', color: '#c8e7ff', slot: 4,

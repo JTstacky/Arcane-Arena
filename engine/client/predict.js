@@ -33,6 +33,13 @@ export class Predictor {
     this.out = { x: 0, y: 0, f: 0, moving: false, turning: false, casting: false };
   }
 
+  // A new game: its host knows none of the orders logged so far.
+  reset() {
+    this.log.length = 0;
+    this.base = this.used = null;
+    this.err.x = this.err.y = 0;
+  }
+
   // Tags an outgoing order with a sequence number and remembers it.
   order(m) {
     if (m.t !== 'cmd' || !(m.c === 'move' || m.c === 'stop' || m.c === 'cast')) return m;
@@ -152,6 +159,7 @@ export class Predictor {
     u.turnRate = pr.tr;
     u.propWindow = pr.pw;
     u.stun = pr.st;
+    this.castPoint = pr.cp ?? this.rules.castPoint; // the host's -castpoint tuning
     u.alive = true;
     u.casting = pr.c ? { id: pr.c.id, tx: pr.c.x, ty: pr.c.y, lock: pr.c.l, charge: pr.c.g } : null;
     u.queued = pr.q ? { ...pr.q } : null;
@@ -203,8 +211,17 @@ export class Predictor {
       u.target = null;
       return;
     }
-    c.lock = this.rules.castPoint;
+    c.lock = this.castPoint;
     u.cds[c.id] = 1; // blocks a re-cast; the real cooldown comes from the host
+    if (def.dash) {
+      // Thrust: the dash starts as the spell goes off.
+      const dx = c.tx - u.x;
+      const dy = c.ty - u.y;
+      const d = Math.hypot(dx, dy) || 1;
+      const range = Math.min(d, def.dash.range);
+      u.dash = { vx: (dx / d) * def.dash.speed, vy: (dy / d) * def.dash.speed, t: range / def.dash.speed };
+      u.target = null;
+    }
   }
 
   step(u) {
@@ -234,6 +251,7 @@ export class Predictor {
     if (u.dash) {
       u.x += u.dash.vx * STEP;
       u.y += u.dash.vy * STEP;
+      u.setFacing(Math.atan2(u.dash.vy, u.dash.vx));
       u.dash.t -= STEP;
       if (u.dash.t <= 0) {
         u.dash = null;

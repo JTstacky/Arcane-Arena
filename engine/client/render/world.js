@@ -1209,6 +1209,35 @@ totalEmissiveRadiance += vec3(1.0, 0.22, 0.02) * heat * heat * heat * (0.8 + vno
     this.reticle.scale.set(r, 1, r);
   }
 
+  // A drag- or stick-aimed spell (phones, gamepads; see aim.js): a band from
+  // the warlock to the aim point, the spell's range, and its area if any.
+  showAim(p) {
+    if (!this.aimBand) {
+      this.aimBand = new THREE.Mesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2).translate(0.5, 0, 0), new THREE.MeshBasicMaterial({ color: '#ffd860', transparent: true, opacity: 0.55, depthWrite: false, toneMapped: false }));
+      this.aimBand.renderOrder = 2;
+      this.scene.add(this.aimBand);
+    }
+    const band = this.aimBand;
+    const me = p && this.myView();
+    if (!me) {
+      band.visible = false;
+      this.showRange(null);
+      this.showReticle(null);
+      return;
+    }
+    const x = me.obj.position.x;
+    const z = me.obj.position.z;
+    const dx = p.x - x;
+    const dz = p.y - z;
+    band.visible = true;
+    band.position.set(x, 0.08, z);
+    band.rotation.y = -Math.atan2(dz, dx);
+    band.scale.set(Math.max(0.1, Math.hypot(dx, dz)), 1, 0.9);
+    band.material.color.set(p.cancel ? '#ff4a3a' : '#ffd860');
+    this.showRange(p.range);
+    this.showReticle(p.aoe ? p : null, p.aoe);
+  }
+
   // ------------------------------------------------------------- events
 
   handleEvent(e) {

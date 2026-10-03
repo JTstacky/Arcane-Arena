@@ -169,3 +169,18 @@ test('scourge winds up for 1 s, cannot be cancelled, and orders wait for it', ()
   for (let i = 0; i < 30; i++) d.g.tick(STEP);
   assert.ok(d.a.unit.x < x0, 'the queued move ran afterwards');
 });
+
+test('once only bots are left alive, the round plays at 5x speed', () => {
+  const room = fakeRoom(3);
+  room.isBot = (id) => id !== 1;
+  const g = new WarlockGame(room, { rounds: 3 });
+  g.startRound();
+  g.tick(STEP);
+  assert.ok(Math.abs(g.roundTime - STEP) < 1e-9, 'normal speed while a human fights');
+  g.ps.get(1).unit.alive = false;
+  const t = g.roundTime;
+  g.tick(STEP);
+  assert.ok(Math.abs(g.roundTime - t - 5 * STEP) < 1e-9, 'five steps per tick');
+  g.startRound();
+  assert.equal(g.fastForward, false, 'a new round is back to normal');
+});

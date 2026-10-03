@@ -5,7 +5,7 @@ import { escapeHtml } from './render/world.js';
 import { TOUCH } from './device.js';
 
 export function renderShell(cfg) {
-  const keys = (TOUCH && cfg.touchHelp ? cfg.touchHelp : cfg.keysHelp).map((k) => `<div>${k}</div>`).join('');
+  const keys = (TOUCH && cfg.touchHelp ? cfg.touchHelp : [...cfg.keysHelp, ...(cfg.padHelp ? [cfg.padHelp] : [])]).map((k) => `<div>${k}</div>`).join('');
   document.body.insertAdjacentHTML('afterbegin', `
     <canvas id="view"></canvas>
     <div id="overlay"></div>
@@ -99,6 +99,7 @@ export function renderShell(cfg) {
       </div>
     </div>
 
+    <button id="fsbtn" class="iconbtn" title="Full screen">⛶</button>
     <div id="tooltip" hidden></div>
     <div id="toast" hidden></div>`);
 }

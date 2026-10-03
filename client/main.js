@@ -7,6 +7,9 @@ import { CAM_DISTANCE } from '../engine/client/render/world.js';
 
 const SELF_CAST = new Set(['windwalk', 'rush', 'scourge']);
 const AUTOCAST = new Set(['shield']); // goes up by itself; its button only shows the cooldown
+// Spells whose target distance matters (drag-aimed on phones: drag further
+// to cast further); the rest fly their full range in the aimed direction.
+const POINT_AIM = new Set(['meteor', 'teleport', 'thrust', 'boomerang']);
 
 startApp({
   ...meta,
@@ -26,15 +29,17 @@ startApp({
   touchHelp: [
     '<b>Joystick</b> (left) walks your warlock',
     '<b>Tap</b> anywhere to throw a fireball there (a tap near a rival aims at them)',
-    '<b>Spell buttons</b> (right) ready that spell for your next tap, then it’s back to fireball · <b>Shield</b> goes up by itself',
-    '<b>Tap the top bar</b> for the scoreboard · <b>long-press</b> a shop card to sell',
+    '<b>Spell buttons</b> (bottom right) ready that spell for your next tap · or, with <b>MOBA</b> controls, drag from the button to aim and let go to cast · <b>Shield</b> goes up by itself',
+    '<b>Dead?</b> Drag the battlefield to watch · <b>tap the top bar</b> for the scoreboard · <b>long-press</b> a shop card to sell',
+    '<b>Controller:</b> left stick walks, right stick aims · <b>RT</b> fireball, <b>A B X Y LB RB LT</b> spells (hold to aim, release to cast)',
   ],
+  padHelp: '<b>Controller:</b> left stick walks, right stick aims · <b>RT</b> fireball, <b>A B X Y LB RB LT</b> spells (hold to aim, release to cast) · <b>Start</b> ready',
   quickCast: true,
   // The host's movement and casting rules, for predicting your own warlock.
   predict: {
     friction: WARLOCK.friction,
     castPoint: WARLOCK.castPoint,
-    spells: Object.fromEntries(Object.entries(SPELLS).filter(([id]) => !AUTOCAST.has(id)).map(([id, d]) => [id, { castTime: d.castTime || 0, self: SELF_CAST.has(id) }])),
+    spells: Object.fromEntries(Object.entries(SPELLS).filter(([id]) => !AUTOCAST.has(id)).map(([id, d]) => [id, { castTime: d.castTime || 0, self: SELF_CAST.has(id), dash: d.dashSpeed ? { speed: d.dashSpeed, range: d.range } : undefined }])),
   },
   touchDefaultSlot: 0, // on phones a tap casts fireball (Q) toward it
   Hud: ArcaneHud,
@@ -48,7 +53,7 @@ startApp({
       if ((snap.me?.cd?.[spell] || 0) > 0) return { error: true };
       if (SELF_CAST.has(spell)) return { self: spell, hold: SPELLS[spell].castTime || 0 };
       const d = SPELLS[spell];
-      return { target: spell, name: d.name, range: d.range != null ? stat(d, 'range', me.sp[spell]) : null, aoe: d.aoe != null ? stat(d, 'aoe', me.sp[spell]) : null };
+      return { target: spell, name: d.name, range: d.range != null ? stat(d, 'range', me.sp[spell]) : null, aoe: d.aoe != null ? stat(d, 'aoe', me.sp[spell]) : null, point: POINT_AIM.has(spell) };
     },
   },
   menuMap: { theme: 'lava', floor: { shape: 'disc', r: 15 }, bounds: 40, props: [] },

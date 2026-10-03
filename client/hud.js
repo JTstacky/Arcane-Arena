@@ -71,7 +71,7 @@ export class ArcaneHud extends HudBase {
     const timer = s.phase === 'play' || s.phase === 'shop' ? fmtTime(s.timer) : '';
     this.set('topbar', `
       <div class="tb-left">Round: <b>${Math.max(1, s.round + (s.phase === 'shop' ? 1 : 0))}</b>/${s.rounds}</div>
-      <div class="tb-mid"><span class="phase">${phaseText}</span> <span class="clock">${timer}</span></div>
+      <div class="tb-mid"><span class="phase">${phaseText}${s.ff ? ` ⏩ ×${s.ff}` : ''}</span> <span class="clock">${timer}</span></div>
       <div class="tb-right">${me ? `<span class="gold" data-tip="text:${encodeURIComponent('Gold. You get more every round.')}">🪙 ${me.g}</span>` : ''}<span class="lava" data-tip="text:${encodeURIComponent('Lava damage per second')}">🔥 ${s.arena.lava}/s</span></div>`);
 
     const alive = {};
@@ -107,8 +107,6 @@ export class ArcaneHud extends HudBase {
     for (let i = 0; i < SLOT_KEYS.length; i++) {
       const id = me.sl[i];
       if (id) this.setCooldown(card[i], cds[id] || 0, stat(SPELLS[id], 'cd', me.sp[id]));
-      // On phones a plain tap throws a fireball: its button becomes a dial.
-      card[i].classList.toggle('dflt', id === 'fireball');
     }
     const myUnit = s.ents.find((e) => e.k === 'warlock' && e.o === this.myId());
     const hp = myUnit ? `${Math.ceil(myUnit.hp)} / ${myUnit.mhp}` : '';

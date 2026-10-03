@@ -8,6 +8,7 @@ import { Net } from './net.js';
 import { World, escapeHtml } from './render/world.js';
 import { Input } from './input.js';
 import { Touch } from './touch.js';
+import { Gamepads } from './gamepad.js';
 import { Predictor } from './predict.js';
 import { TOUCH, CONTROLS, setControls } from './device.js';
 import { play, unlockAudio, toggleMute, isMuted } from './audio.js';
@@ -53,6 +54,7 @@ export function startApp(cfg) {
   });
   input.quickCast = store('quick') === '1'; // WC3 1.26 has no quick-cast, so it is off by default
   if (TOUCH) new Touch({ world, input, send, getMyId: () => state.myId, defaultSlot: cfg.touchDefaultSlot ?? null });
+  const pads = new Gamepads({ world, input, send });
   const follow = () => !!cfg.followCamera || TOUCH; // phones have no screen edges to scroll with
   world.onMessage = (e) => addChat(e.text, { color: e.c, system: !e.c });
   world.onError = showError;
@@ -252,6 +254,7 @@ export function startApp(cfg) {
         state.snap = null;
         hud.reset();
         showScreen('game');
+        predictor?.reset();
         world.follow = follow();
         world.zoom = cfg.gameZoom ?? 30;
         break;
@@ -398,8 +401,22 @@ export function startApp(cfg) {
     } else location.reload();
   };
 
+  // Full screen: no browser tabs or toolbars. Where the browser can, Esc is
+  // kept for the game (cancel targeting); holding it leaves full screen.
+  $('fsbtn').onclick = () => {
+    if (document.fullscreenElement) return document.exitFullscreen?.();
+    document.documentElement.requestFullscreen?.({ navigationUI: 'hide' })
+      .then(() => navigator.keyboard?.lock?.(['Escape']))
+      .catch(() => {});
+  };
+  document.addEventListener('fullscreenchange', () => {
+    const on = !!document.fullscreenElement;
+    $('fsbtn').textContent = on ? '🗗' : '⛶';
+    $('fsbtn').title = on ? 'Leave full screen (hold Esc)' : 'Full screen';
+  });
+
   // Handy for debugging from the console.
-  window.game = { send, state, world, net };
+  window.game = { send, state, world, net, input, pads };
 
   showScreen('menu');
   // A refresh mid-game (same tab) rejoins automatically; the saved token

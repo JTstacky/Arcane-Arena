@@ -70,7 +70,7 @@ vv += wb * dir(from source to victim)
 
 | Spell | Buy cost | Damage | Cooldown | Other |
 |---|---|---|---|---|
-| Fireball | — | 7 (+0.5 per level) | 4.8 s | 1000 u/s, lifetime 1 s |
+| Fireball | — | 7 (+0.5 per level) | 4.8 s | 1000 u/s, lifetime 1 s. **Our change (playtest feedback):** each level adds 60 range (990 → 1350) |
 | Lightning | 11 | 7 → 11 | 16.5 → 13.5 s | |
 | Homing | 11 | 7 → 12 | 15 → 11 s | lifetime 4.5 s |
 | Boomerang | 11 | 7 → 10 | 16 → 10.3 s | |
@@ -79,7 +79,7 @@ vv += wb * dir(from source to victim)
 | Swap | 11 | — | 15.8 → 8.8 s | |
 | Drain | 14 | 6 (+1 per level) | 22 s (−1 per level) | slows the target by 50 speed for 4 s (+1 s per level) |
 | Bouncer | 14 | 5.4 (+0.8 per level) | 20 → 15 s | −20% damage per bounce |
-| Meteor | 14 | 4 to 11 (+1 per level) | 20 s (−0.5 per level) | area 225 → 294 |
+| Meteor | 14 | 4 to 11 (+1 per level) | 20 s (−0.5 per level) | area 225 → 294. **Our change (playtest feedback):** 6 to 16 at level 1, up to 13 to 25 |
 | Wind Walk | 15 | 5.4 (+0.6 per level) | 30 → 19.5 s | 2.6 s, +200 speed |
 | Shield | 12 | — | 25 → 17 s | lasts 2.8 → 3.8 s |
 | Rush | 12 | — | 21 s (−1 per level) | absorbs 5 (+2 per level) |

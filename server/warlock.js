@@ -21,6 +21,7 @@ const SELF_CAST = new Set(['shield', 'rush', 'windwalk', 'scourge']);
 const SOLID_PROJECTILES = new Set(['fireball', 'homing', 'bouncer', 'boomerang', 'drain', 'link', 'swap']);
 const KILL_CREDIT_WINDOW = 8;
 const MAX_EXTRA_ROUNDS = 3;
+const FAST_FORWARD = 5; // game speed once only bots are left fighting
 
 export class WarlockGame {
   constructor(room, settings) {
@@ -92,6 +93,7 @@ export class WarlockGame {
     this.phase = 'play';
     this.roundTime = 0;
     this.shrinkT = 0;
+    this.fastForward = false;
     this.lavaT = 0;
     this.arenaR = this.baseArena;
     this.projectiles = [];
@@ -195,6 +197,7 @@ export class WarlockGame {
       t: u.target ? [r4(u.target.x), r4(u.target.y)] : null,
       v: [r4(u.vx), r4(u.vy)],
       sp: r4(u.speed * u.speedMult), tr: u.turnRate, pw: u.propWindow,
+      cp: this.room.tuning?.castPoint ?? WARLOCK.castPoint,
       st: u.stun > 0 ? r4(u.stun) : 0,
       c: c ? { id: c.id, x: c.tx, y: c.ty, l: r4(c.lock), g: c.charge == null ? null : r4(c.charge) } : null,
       q: q ? (q.c === 'cast' ? { c: 'cast', id: q.id, x: q.tx, y: q.ty } : { ...q }) : null,
@@ -623,7 +626,22 @@ export class WarlockGame {
     }
     if (this.phase === 'over') return;
 
-    // play
+    // Once only bots are left fighting, play on at FAST_FORWARD speed.
+    if (!this.fastForward && this.ps.size > 1) {
+      const alive = [...this.ps.values()].filter((s) => s.unit?.alive);
+      if (alive.length > 1 && alive.every((s) => this.room.isBot(s.id))) {
+        this.fastForward = true;
+        this.msg(`Only bots are left: fast-forward ×${FAST_FORWARD}.`);
+      }
+    }
+    const steps = this.fastForward ? FAST_FORWARD : 1;
+    for (let i = 0; i < steps && this.phase === 'play'; i++) {
+      if (i) this.time += dt;
+      this.stepPlay(dt);
+    }
+  }
+
+  stepPlay(dt) {
     this.roundTime += dt;
     this.timer = this.roundTime;
     // The platform loses a whole tile every 15·√alive seconds until nothing
@@ -1180,7 +1198,7 @@ export class WarlockGame {
     const tNearLava = Math.hypot(target.x, target.y) > R - 6;
     const S = SPELLS;
     const options = [];
-    if (ready('fireball') && td < S.fireball.range) options.push(['fireball', ...lead(S.fireball.speed)]);
+    if (ready('fireball') && td < stat(S.fireball, 'range', s.spells.fireball)) options.push(['fireball', ...lead(S.fireball.speed)]);
     if (ready('lightning') && td < S.lightning.range) options.push(['lightning', target.x, target.y]);
     if (ready('homing') && td < 25) options.push(['homing', target.x, target.y]);
     if (ready('bouncer') && td < S.bouncer.range) options.push(['bouncer', ...lead(S.bouncer.speed)]);
@@ -1238,6 +1256,7 @@ export class WarlockGame {
     const snap = {
       mode: 'warlock',
       phase: this.phase,
+      ff: this.fastForward && this.phase === 'play' ? FAST_FORWARD : undefined,
       timer: round1(this.timer),
       round: this.round,
       rounds: this.rounds,

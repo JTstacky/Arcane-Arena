@@ -95,7 +95,7 @@ input:focus { border-color: var(--gold); }
 .mode-card b { font-family: Cinzel, serif; font-size: 16px; }
 .mode-card p { margin: 4px 0 0; color: var(--muted); font-size: 12.5px; }
 #modeopts { display: flex; gap: 8px; align-items: center; margin-bottom: 14px; flex-wrap: wrap; color: var(--muted); }
-#modeopts button.sel { border-color: var(--gold); color: var(--gold); }
+#modeopts button.sel, #touchopts button.sel { border-color: var(--gold); color: var(--gold); }
 #start { width: 100%; }
 
 /* ---------- chat */
@@ -140,6 +140,9 @@ body.inlobby #chat { bottom: 12px; }
 .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; border: 1px solid #000; }
 #messages { position: absolute; left: 12px; bottom: 360px; pointer-events: none; }
 #hud-menu { position: absolute; top: 8px; right: 10px; }
+#fsbtn { position: fixed; top: 8px; right: 10px; z-index: 6; }
+body:not(.inlobby) #fsbtn { right: 52px; } /* in a game, beside the options button */
+body.phone #fsbtn { display: none; } /* phones go full screen when a game starts */
 
 #console {
   position: absolute; bottom: 0; left: 50%; transform: translateX(-50%);
@@ -315,24 +318,20 @@ body.touch .portrait, body.touch .inventory, body.touch .utitle, body.touch .una
 body.touch .bighp { height: 11px; border-radius: 3px; }
 body.touch .bighp span { font-size: 8.5px; line-height: 10px; }
 body.touch .kbline { font-size: 9px; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-/* Spells: a compact column (then a second) hugging the right edge, only the
-   spells you own, leaving the middle and bottom of the screen free to tap.
-   The default attack (fireball: a plain tap) is just a cooldown dial in the
-   bottom-right corner. */
-body.touch #cmdcard {
-  position: fixed; right: calc(8px + env(safe-area-inset-right)); left: auto; top: calc(50% - 124px); bottom: auto;
-  grid-auto-flow: column; grid-template-rows: repeat(4, 52px); grid-template-columns: none; grid-auto-columns: 52px; gap: 6px 8px;
-  direction: rtl; /* the first column sits against the edge */
-}
-body.touch .cmd { direction: ltr; }
-body.touch .cmd .hk { display: none; }
+/* Spell buttons are placed one by one (touch.js), leaving the screen to tap. */
+body.touch #cmdcard { position: fixed; inset: 0; display: block; pointer-events: none; }
+body.touch #cmdcard .cmd { position: absolute; pointer-events: auto; border-radius: 50%; }
+body.touch #cmdcard .cmd::before { border-radius: 50%; }
+body.touch .cmd .icon { border-radius: 50%; overflow: hidden; }
+body.touch .cmd .cdsweep { border-radius: 50%; }
+body.touch .cmd .hk, body.touch .cmd .pips { display: none; }
 body.touch .cmd.empty { display: none; }
-body.touch .cmd.dflt {
-  position: fixed; right: calc(10px + env(safe-area-inset-right)); bottom: 10px; top: auto; width: 44px; height: 44px;
-  border-radius: 50%; pointer-events: none; opacity: 0.85;
-}
-body.touch .cmd.dflt .pips { display: none; }
-body.touch .cmd.dflt .cdnum { font-size: 15px; }
+/* The default attack's cooldown dial: not a button, taps go through it. */
+body.touch #cmdcard .cmd.dial { pointer-events: none; opacity: 0.85; }
+body.touch .cmd.dial .cdnum { font-size: 15px; }
+#touchopts { display: grid; gap: 8px; margin: 10px 0 4px; }
+#touchopts .optrow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+#touchopts .optrow > span { min-width: 92px; color: var(--muted); font-size: 13px; }
 body.touch[data-armed="0"] .cmd[data-slot="0"], body.touch[data-armed="1"] .cmd[data-slot="1"], body.touch[data-armed="2"] .cmd[data-slot="2"], body.touch[data-armed="3"] .cmd[data-slot="3"], body.touch[data-armed="4"] .cmd[data-slot="4"], body.touch[data-armed="5"] .cmd[data-slot="5"], body.touch[data-armed="6"] .cmd[data-slot="6"], body.touch[data-armed="7"] .cmd[data-slot="7"] { border-color: #ffe066; box-shadow: 0 0 12px #ffcf40, inset 0 0 8px rgba(0, 0, 0, 0.8); }
 body.touch #topbar { min-width: 0; gap: 12px; padding: 5px 12px; font-size: 12px; }
 body.touch #topbar .phase { font-size: 13px; }
