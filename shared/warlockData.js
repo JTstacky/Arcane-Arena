@@ -126,11 +126,13 @@ export const SPELLS = {
     desc: 'Steals life from the warlock hit and slows them by 50 movement speed.',
     cd: lin(22, 16), dmg: lin(6, 12), duration: lin(4, 10), speed: 700 * UNIT, range: 850 * UNIT, radius: 0.5, slow: 50 * UNIT,
   },
-  bouncer: {
-    name: 'Bouncer', icon: '🟢', color: '#6dff5a', slot: 3,
+  // Our replacement for the map's Bouncer (playtest: it was weak and pointless).
+  plasma: {
+    name: 'Plasma Ball', icon: '🔵', color: '#4ad8ff', slot: 3,
     cost: 14, upCost: [6, 7, 8, 9, 10, 11], maxLevel: 7,
-    desc: 'After hitting a warlock the orb bounces on to the next nearest one, losing 20% damage per bounce.',
-    cd: lin(20, 15), dmg: lin(5.4, 10.2), speed: 900 * UNIT, range: 900 * UNIT, radius: 0.76, bounces: [2, 2, 3, 3, 3, 4, 4], bounceLoss: 0.8,
+    desc: 'After a quarter-second charge, launch a big, slow ball of plasma. It explodes on the first warlock it touches, or where its flight ends, hurting and hurling everyone in a wide blast.',
+    castTime: 0.25, cd: lin(18, 12), dmg: lin(12, 18), edge: 0.35, aoe: lin(175 * UNIT, 225 * UNIT),
+    speed: 450 * UNIT, range: 1000 * UNIT, radius: 1.1,
   },
   // ---- Column 4: power
   meteor: {

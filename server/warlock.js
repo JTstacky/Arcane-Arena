@@ -18,7 +18,7 @@ import {
 } from '../engine/server/sim.js';
 
 const SELF_CAST = new Set(['shield', 'rush', 'windwalk', 'scourge']);
-const SOLID_PROJECTILES = new Set(['fireball', 'homing', 'bouncer', 'boomerang', 'drain', 'link', 'swap']);
+const SOLID_PROJECTILES = new Set(['fireball', 'homing', 'plasma', 'boomerang', 'drain', 'link', 'swap']);
 const KILL_CREDIT_WINDOW = 8;
 const MAX_EXTRA_ROUNDS = 3;
 const FAST_FORWARD = 5; // game speed once only bots are left fighting
@@ -455,8 +455,8 @@ export class WarlockGame {
       case 'swap':
         spawn({ range: Math.min(d, stat(def, 'range', lvl)) });
         break;
-      case 'bouncer':
-        spawn({ bounces: stat(def, 'bounces', lvl) });
+      case 'plasma':
+        spawn();
         break;
       case 'boomerang': {
         const range = Math.min(Math.max(d, 4), stat(def, 'range', lvl));
@@ -923,12 +923,17 @@ export class WarlockGame {
       if (p.life <= 0) {
         p.dead = true;
         if (p.kind === 'swap') this.swapWithProjectile(p, owner);
+        else if (p.kind === 'plasma') this.explodePlasma(p, owner);
         else if (p.kind !== 'boomerang') this.ev({ k: 'fizzle', x: round1(p.x), y: round1(p.y), c: def.color });
         continue;
       }
       // Obstacles stop projectiles.
       if (this.obstacles.some((o) => dist(p.x, p.y, o.x, o.y) < o.r + p.r)) {
         p.dead = true;
+        if (p.kind === 'plasma') {
+          this.explodePlasma(p, owner);
+          continue;
+        }
         this.ev({ k: 'boom', x: round1(p.x), y: round1(p.y), r: 0.8, c: def.color });
         continue;
       }
@@ -979,6 +984,8 @@ export class WarlockGame {
           if (q === p || q.dead || q.owner === p.owner || !SOLID_PROJECTILES.has(q.kind)) continue;
           if (dist(p.x, p.y, q.x, q.y) < p.r + q.r) {
             p.dead = q.dead = true;
+            // A Plasma Ball shot down still goes off.
+            for (const b of [p, q]) if (b.kind === 'plasma') this.explodePlasma(b, this.ps.get(b.owner));
             this.ev({ k: 'boom', x: round1((p.x + q.x) / 2), y: round1((p.y + q.y) / 2), r: 0.9, c: def.color });
             break;
           }
@@ -986,6 +993,25 @@ export class WarlockGame {
       }
     }
     this.projectiles = this.projectiles.filter((p) => !p.dead);
+  }
+
+  // Plasma Ball's blast: full damage to the warlock it hit and at the centre,
+  // `edge` of it at the rim, knocking everyone out from the centre (but not
+  // the caster).
+  explodePlasma(p, owner, direct = null) {
+    const def = SPELLS.plasma;
+    const dmg = stat(def, 'dmg', p.level);
+    const r = stat(def, 'aoe', p.level);
+    p.dead = true;
+    for (const o of this.ps.values()) {
+      const u = o.unit;
+      if (!u?.alive || o === owner) continue;
+      const d = dist(p.x, p.y, u.x, u.y);
+      if (d > r + u.r) continue;
+      const k = o === direct ? 0 : clamp(d / r, 0, 1);
+      this.damage(o, dmg + (dmg * def.edge - dmg) * k, owner, u.x - p.x || p.vx, u.y - p.y || p.vy);
+    }
+    this.ev({ k: 'boom', x: round1(p.x), y: round1(p.y), r, c: def.color, big: 1 });
   }
 
   swapWithProjectile(p, owner) {
@@ -1008,30 +1034,9 @@ export class WarlockGame {
       case 'boomerang':
         this.damage(s, dmg, owner, dx, dy);
         break;
-      case 'bouncer': {
-        this.damage(s, dmg, owner, dx, dy);
-        let next = null;
-        let bd = 12;
-        for (const o of this.ps.values()) {
-          if (!o.unit?.alive || o.id === p.owner || p.hit.has(o.id)) continue;
-          const d = dist(u.x, u.y, o.unit.x, o.unit.y);
-          if (d < bd) {
-            bd = d;
-            next = o.unit;
-          }
-        }
-        if (next && p.bounces > 0) {
-          p.bounces--;
-          p.dmgMult = (p.dmgMult ?? 1) * def.bounceLoss;
-          const nx = next.x - p.x;
-          const ny = next.y - p.y;
-          const nl = Math.hypot(nx, ny) || 1;
-          p.vx = (nx / nl) * p.speed;
-          p.vy = (ny / nl) * p.speed;
-          p.life = 1.6;
-        } else p.dead = true;
+      case 'plasma':
+        this.explodePlasma(p, owner, s);
         break;
-      }
       case 'homing':
         this.damage(s, dmg, owner, dx, dy);
         this.areaDamage(p.x, p.y, def.aoe, dmg * 0.4, dmg * 0.15, owner, 1, s);
@@ -1107,9 +1112,9 @@ export class WarlockGame {
     b.shopAt -= dt;
     if (b.shopAt > 0) return;
     const prefs = {
-      aggro: ['homing', 'thrust', 'bouncer', 'meteor', 'shield', 'link'],
+      aggro: ['homing', 'thrust', 'plasma', 'meteor', 'shield', 'link'],
       mobile: ['lightning', 'teleport', 'drain', 'windwalk', 'rush', 'gravity'],
-      control: ['boomerang', 'swap', 'bouncer', 'meteor', 'shield', 'gravity'],
+      control: ['boomerang', 'swap', 'plasma', 'meteor', 'shield', 'gravity'],
     }[b.style];
     for (let tries = 0; tries < 12; tries++) {
       const missing = prefs.filter((id) => !s.slots[SPELLS[id].slot]);
@@ -1203,7 +1208,7 @@ export class WarlockGame {
     if (ready('fireball') && td < stat(S.fireball, 'range', s.spells.fireball)) options.push(['fireball', ...lead(S.fireball.speed)]);
     if (ready('lightning') && td < S.lightning.range) options.push(['lightning', target.x, target.y]);
     if (ready('homing') && td < 25) options.push(['homing', target.x, target.y]);
-    if (ready('bouncer') && td < S.bouncer.range) options.push(['bouncer', ...lead(S.bouncer.speed)]);
+    if (ready('plasma') && td < S.plasma.range) options.push(['plasma', ...lead(S.plasma.speed)]);
     if (ready('boomerang') && td < S.boomerang.range) options.push(['boomerang', ...lead(S.boomerang.speed)]);
     if (ready('drain') && td < S.drain.range) options.push(['drain', ...lead(S.drain.speed)]);
     if (ready('meteor') && td < S.meteor.range) options.push(['meteor', ...lead(td / 1.15)]);

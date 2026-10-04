@@ -214,3 +214,24 @@ test('interest: a quarter of the gold kept through a round, on top of the pay', 
   assert.equal(a.gold, 23 + 5 + WARLOCK.goldPerRound);
   assert.equal(b.gold, WARLOCK.goldPerRound);
 });
+
+test('plasma ball: 0.25 s charge, a slow ball, a wide blast that spares the caster', () => {
+  const { g, a, b } = duel();
+  a.spells.plasma = 1;
+  b.unit.x = 6;
+  const hpA = a.unit.hp;
+  const hpB = b.unit.hp;
+  g.command(1, { c: 'cast', spell: 'plasma', x: 6, y: 0 });
+  for (let i = 0; i < 7; i++) g.tick(STEP);
+  assert.equal(g.projectiles.filter((p) => p.kind === 'plasma').length, 0, 'still charging at 0.21 s');
+  for (let i = 0; i < 3; i++) g.tick(STEP);
+  assert.equal(g.projectiles.filter((p) => p.kind === 'plasma').length, 1, 'launched after the charge');
+  let t = 0;
+  while (b.unit.hp === hpB && t < 3) {
+    g.tick(STEP);
+    t += STEP;
+  }
+  assert.ok(t > 0.35, `slow: reached 6 m away after ${t.toFixed(2)} s`);
+  assert.ok(hpB - b.unit.hp >= 10, `big hit: ${hpB - b.unit.hp}`);
+  assert.ok(a.unit.hp >= hpA - 0.01, 'the caster is not hurt');
+});

@@ -78,7 +78,7 @@ vv += wb * dir(from source to victim)
 | Thrust | 11 | 5.4 (+0.4 per level) | 16.5 → 9 s | |
 | Swap | 11 | — | 15.8 → 8.8 s | |
 | Drain | 14 | 6 (+1 per level) | 22 s (−1 per level) | slows the target by 50 speed for 4 s (+1 s per level) |
-| Bouncer | 14 | 5.4 (+0.8 per level) | 20 → 15 s | −20% damage per bounce |
+| Bouncer | 14 | 5.4 (+0.8 per level) | 20 → 15 s | −20% damage per bounce. **Replaced (playtest)** by our Plasma Ball: 0.25 s charge, a big slow ball (450/s, range 1000) that explodes in a 175 → 225 radius for 12 → 18 (35% at the rim), 18 → 12 s |
 | Meteor | 14 | 4 to 11 (+1 per level) | 20 s (−0.5 per level) | area 225 → 294. **Our change (playtest feedback):** 6 to 16 at level 1, up to 13 to 25 |
 | Wind Walk | 15 | 5.4 (+0.6 per level) | 30 → 19.5 s | 2.6 s, +200 speed. **Our change (playtest):** upgrades also give 2.6 → 4 s and +200 → +320 speed |
 | Shield | 12 | — | 25 → 17 s | lasts 2.8 → 3.8 s. **Our change (playtest; it is autocast here):** 32 → 24 s, lasts 1.4 → 1.9 s |

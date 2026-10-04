@@ -26,7 +26,7 @@ const KINDS = {
   fireball: { head: [['fx_flame', '#ffffff', 1.9, 'spin'], ['fx_flare', '#ffa040', 2.8]], ribbon: { color: '#ff8a2a', width: 1.2, life: 0.22 }, core: { color: '#ffe8b0', width: 0.45, life: 0.12 }, light: ['#ff7a1a', 10, 8], step: 0.3, shed: 'fire' },
   homing: { head: [['fx_wisp', '#6ab0ff', 2.2, 'aim'], ['fx_flare', '#2a70ff', 2.6, null, 0.7]], ribbon: { color: '#3a80ff', width: 0.7, life: 0.4 }, light: ['#6ab8ff', 5, 6], step: 0.4, shed: 'glow' },
   boomerang: { head: [['fx_flare', '#ffc830', 2.2, null, 0.75]], mesh: 'blade', ribbon: { color: '#ffd84d', width: 0.6, life: 0.3 }, light: ['#ffd84d', 4, 5], step: 0.5, shed: 'spark' },
-  bouncer: { head: [['fx_orb', '#6dff5a', 1.3, 'spin'], ['fx_flare', '#4dff3a', 2.6, null, 0.7]], ribbon: { color: '#4dff3a', width: 0.8, life: 0.3 }, light: ['#6dff5a', 5, 6], step: 0.4, shed: 'glow' },
+  plasma: { head: [['fx_orb', '#5ad0ff', 2.6, 'spin', 0.9], ['fx_orb', '#1a8cff', 3.6, 'spin-fast', 0.6], ['fx_flare', '#2a7cff', 5, null, 0.5]], ribbon: { color: '#3ac8ff', width: 2, life: 0.35 }, light: ['#4ad8ff', 8, 9], step: 0.3, shed: 'spark' },
   drain: { head: [['fx_orb', '#ff2a3a', 1.2, 'spin'], ['fx_flare', '#d0102a', 2.4, null, 0.8]], ribbon: { color: '#d0102a', width: 0.6, life: 0.35 }, light: ['#ff2030', 4, 5], step: 0.4, shed: 'drip' },
   link: { head: [['fx_orb', '#8affd8', 1.2, 'spin'], ['fx_flare', '#20e8b0', 2.4, null, 0.7]], ribbon: { color: '#4affc8', width: 0.5, life: 0.3 }, light: ['#8affd8', 4, 5], step: 0.35, shed: 'spark' },
   swap: { head: [['fx_orb', '#ff90f0', 1.1, 'spin'], ['fx_flare', '#e040d8', 2.2, null, 0.7]], ribbon: { color: '#e040d8', width: 0.7, life: 0.18 }, light: ['#ff9cf4', 4, 5], step: 0.6, shed: 'glow' },

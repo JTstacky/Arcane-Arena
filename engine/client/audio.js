@@ -77,7 +77,7 @@ function noise({ dur = 0.3, gain = 0.3, f0 = 2000, f1 = 200, q = 1, type = 'lowp
 const SOUNDS = {
   fireball: () => noise({ dur: 0.35, gain: 0.25, f0: 3000, f1: 300, type: 'bandpass', q: 0.8 }),
   homing: () => tone({ type: 'triangle', f0: 300, f1: 900, dur: 0.3, gain: 0.15 }),
-  bouncer: () => tone({ type: 'square', f0: 500, f1: 250, dur: 0.15, gain: 0.08 }),
+  plasma: () => tone({ type: 'sawtooth', f0: 140, f1: 320, dur: 0.35, gain: 0.08 }),
   boomerang: () => noise({ dur: 0.4, gain: 0.15, f0: 800, f1: 2400, type: 'bandpass', q: 3 }),
   lightning: () => {
     noise({ dur: 0.25, gain: 0.35, f0: 6000, f1: 800, type: 'highpass' });
