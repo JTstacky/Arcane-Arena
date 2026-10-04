@@ -50,7 +50,7 @@ vv += wb * dir(from source to victim)
 - **Collisions.** Warlocks push each other apart in the script loop, which also checks for fast-moving collisions.
 - **Lava.** Deals 9 HP/s, checked every 0.1 s. Off the lava you regenerate 0.5 HP/s.
 - **Arena.** The starting radius is `9 + floor(sqrt(players))` tiles. It shrinks by one tile every `15 × sqrt(players alive)` seconds.
-- **Economy.** You start with 20 gold and get 10 per round. Kills and round wins give no gold.
+- **Economy.** You start with 20 gold and get 10 per round. Kills and round wins give no gold. **Our addition (playtest):** interest, 25% of the gold you kept, rounded down, at the end of each round. And the Cursed Ring is now a trade: −10 / 15 maximum health for −18 / 28% knockback taken.
 - **Rounds.** The shop lasts 30 s (40 s for the first shop). A game is 11 rounds.
 - **Points.** A kill, an assist and a round win are worth 1 point each.
 
@@ -80,11 +80,11 @@ vv += wb * dir(from source to victim)
 | Drain | 14 | 6 (+1 per level) | 22 s (−1 per level) | slows the target by 50 speed for 4 s (+1 s per level) |
 | Bouncer | 14 | 5.4 (+0.8 per level) | 20 → 15 s | −20% damage per bounce |
 | Meteor | 14 | 4 to 11 (+1 per level) | 20 s (−0.5 per level) | area 225 → 294. **Our change (playtest feedback):** 6 to 16 at level 1, up to 13 to 25 |
-| Wind Walk | 15 | 5.4 (+0.6 per level) | 30 → 19.5 s | 2.6 s, +200 speed |
+| Wind Walk | 15 | 5.4 (+0.6 per level) | 30 → 19.5 s | 2.6 s, +200 speed. **Our change (playtest):** upgrades also give 2.6 → 4 s and +200 → +320 speed |
 | Shield | 12 | — | 25 → 17 s | lasts 2.8 → 3.8 s. **Our change (playtest; it is autocast here):** 32 → 24 s, lasts 1.4 → 1.9 s |
 | Rush | 12 | — | 21 s (−1 per level) | absorbs 5 (+2 per level). **Our change (playtest):** 16 → 10 s, absorbs 9 → 24 |
 | Link | 11 | 0.2 (+0.1 per level) | 17 → 7 s | |
-| Gravity | 12 | 0.3 (+0.2 per level) | 21 → 19 s | force 13 (+1 per level) |
+| Gravity | 12 | 0.3 (+0.2 per level) | 21 → 19 s | force 13 (+1 per level). **Our change (playtest):** 21 → 13 s, and the pull grows twice as fast as before (500 → 900 in our units, was → 680) |
 | Scourge | — | 10 around you, including yourself | 3 s | 1 s wind-up that cannot be stopped; no walking during it, knockback still applies (per Justin). **Our change (playtest):** renamed Self-Explode; upgrades give 10/13/16 damage, 100/125/150% knockback and 3/2.5/2 s cooldown, while the cost to you stays 10 |
 
 ## What to check in the real game (for playtesting)

@@ -55,6 +55,7 @@ export const WARLOCK = {
   spawnPerPlayer: 64 * UNIT,
   startGold: 20,
   goldPerRound: 10,
+  interest: 0.25, // at each round's end, a bonus of this share of the gold you kept (our addition)
   shopTime: 30,
   firstShopTime: 40,
 };
@@ -142,8 +143,10 @@ export const SPELLS = {
   windwalk: {
     name: 'Windwalk', icon: '👻', color: '#c8e7ff', slot: 4,
     cost: 15, upCost: [6, 7, 8, 9, 10, 11], maxLevel: 7,
-    desc: 'Turn invisible and much faster. Running into a warlock deals damage and ends it.',
-    cd: lin(30, 19.5), dmg: lin(5.4, 9), duration: 2.6, speedBonus: 200 * UNIT,
+    desc: 'Turn invisible and much faster. Running into a warlock deals damage and ends it. Upgrades make it faster and longer too.',
+    // Our change (playtest): upgrades also add speed (200 -> 320) and time
+    // (2.6 -> 4 s); in the map only the damage and cooldown improve.
+    cd: lin(30, 19.5), dmg: lin(5.4, 9), duration: lin(2.6, 4), speedBonus: lin(200 * UNIT, 320 * UNIT),
   },
   // ---- Column 5: defence
   shield: {
@@ -165,8 +168,10 @@ export const SPELLS = {
   gravity: {
     name: 'Gravity', icon: '🌀', color: '#b36bff', slot: 6,
     cost: 12, upCost: [7, 8, 9, 10, 11, 12], maxLevel: 7,
-    desc: 'A slow singularity that drags warlocks toward it and damages those close by.',
-    cd: lin(21, 19), dmg: lin(2, 10), speed: 450 * UNIT, range: 900 * UNIT, pull: lin(500 * UNIT, 680 * UNIT), pullRadius: 550 * UNIT, dmgRadius: 250 * UNIT, radius: 0.5,
+    desc: 'A slow singularity that drags warlocks toward it and damages those close by. Upgrades pull much harder.',
+    // Our change (playtest): a stronger pull (500 -> 900, was -> 680) and a
+    // shorter cooldown (21 -> 13 s, was -> 19) with upgrades.
+    cd: lin(21, 13), dmg: lin(2, 10), speed: 450 * UNIT, range: 900 * UNIT, pull: lin(500 * UNIT, 900 * UNIT), pullRadius: 550 * UNIT, dmgRadius: 250 * UNIT, radius: 0.5,
   },
   link: {
     name: 'Link', icon: '⛓️', color: '#8affd8', slot: 6,
@@ -179,7 +184,8 @@ export const SPELLS = {
 // Items: buy again to level up (the cost is paid for every level).
 export const ITEMS = {
   ring: { name: 'Ring of Health', icon: '💍', cost: 4, maxLevel: 5, hp: [10, 19, 27, 34, 40], desc: '+10 / 19 / 27 / 34 / 40 maximum health.' },
-  cursed: { name: 'Cursed Ring', icon: '🧿', cost: 4, maxLevel: 2, hp: [10, 20], kb: [0.15, 0.15], debuff: [0.25, 0.3], desc: '+10 / 20 health and -15% knockback, but debuffs last 25 / 30% longer.' },
+  // Our change (playtest): a real trade (the map's gave health as well).
+  cursed: { name: 'Cursed Ring', icon: '🧿', cost: 4, maxLevel: 2, hp: [-10, -15], kb: [0.18, 0.28], desc: '-18 / 28% knockback taken, but -10 / 15 maximum health.' },
   cape: { name: 'Cape', icon: '🧣', cost: 3, maxLevel: 3, regen: [0.15, 0.25, 0.35], desc: '+0.15 / 0.25 / 0.35 health regeneration.' },
   armor: { name: 'Armor', icon: '🦺', cost: 6, maxLevel: 3, kb: [0.12, 0.18, 0.22], desc: '-12 / 18 / 22% knockback taken.' },
   boots: { name: 'Boots', icon: '👢', cost: 5, maxLevel: 3, speed: [18, 29, 40].map((v) => v * UNIT), desc: '+18 / 29 / 40 movement speed.' },

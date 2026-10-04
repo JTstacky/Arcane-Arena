@@ -1,7 +1,7 @@
 // Arcane Arena HUD: round/gold top bar, Warlock multiboard, command card of
 // spells with cooldown sweeps, the six-slot inventory and the shop.
 
-import { SPELLS, ITEMS, SLOT_KEYS, COLUMNS, MAX_ITEMS, stat, upgradeCost } from '../shared/warlockData.js';
+import { SPELLS, ITEMS, SLOT_KEYS, COLUMNS, MAX_ITEMS, WARLOCK, stat, upgradeCost } from '../shared/warlockData.js';
 import { HudBase, $, fmtTime, hpColor } from '../engine/client/ui/hud-base.js';
 
 // A painted icon from art/icons/, falling back to the emoji if it can't load.
@@ -11,7 +11,7 @@ export function ico(id, emoji, cls = 'ico') {
 
 const SPELL_STATS = [
   ['dmg', 'Damage'], ['selfDmg', 'Self damage'], ['kbPct', 'Knockback', '%'], ['absorb', 'Absorbs'], ['cd', 'Cooldown', 's'], ['range', 'Range', 'm'], ['aoe', 'Radius', 'm'],
-  ['duration', 'Duration', 's'], ['bounces', 'Bounces'], ['life', 'Lifetime', 's'],
+  ['duration', 'Duration', 's'], ['speedBonus', 'Extra speed', ' m/s'], ['bounces', 'Bounces'], ['life', 'Lifetime', 's'],
 ];
 
 // A spell's stats as short chips for its shop card; when it is owned and can
@@ -19,7 +19,7 @@ const SPELL_STATS = [
 function spellStats(id, level) {
   const d = SPELLS[id];
   const lv = Math.max(1, level);
-  const short = { Damage: 'Dmg', 'Self damage': 'Self dmg', Knockback: 'KB', Cooldown: 'CD', Duration: 'Lasts', Lifetime: 'Lasts' };
+  const short = { 'Extra speed': 'Speed +', Damage: 'Dmg', 'Self damage': 'Self dmg', Knockback: 'KB', Cooldown: 'CD', Duration: 'Lasts', Lifetime: 'Lasts' };
   const f = (v) => (Math.round(v * 10) / 10).toString();
   return SPELL_STATS.filter(([k]) => d[k] != null).map(([k, label, unit = '']) => {
     const cur = stat(d, k, lv);
@@ -166,7 +166,7 @@ export class ArcaneHud extends HudBase {
     });
     const readyCount = Object.values(s.players).filter((p) => p.rd).length;
     this.set('shop', `
-      <div class="shop-head"><h2>Goblin Merchant</h2><div class="shop-gold">🪙 <b>${me.g}</b> gold</div><div class="shop-timer">Next round in <b id="shop-t"></b>s</div></div>
+      <div class="shop-head"><h2>Goblin Merchant</h2><div class="shop-gold">🪙 <b>${me.g}</b> gold <small title="At the end of each round you get a quarter of the gold you kept as a bonus">· keep it: +${Math.floor(me.g * WARLOCK.interest)} interest</small></div><div class="shop-timer">Next round in <b id="shop-t"></b>s</div></div>
       <h3>Spells <small>— one per column. Buy to learn, buy again to upgrade. <span class="mouseonly">Right-click</span><span class="touchonly">Long-press</span> an owned card to sell for half.</small></h3>
       <div class="shopcols">
         <div class="shopcol"><div class="colhead"><b>${SLOT_KEYS[SPELLS.fireball.slot]}</b> / <b>${SLOT_KEYS[SPELLS.scourge.slot]}</b> Basics</div>${spellCard('fireball')}${spellCard('scourge')}</div>

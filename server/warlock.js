@@ -126,7 +126,8 @@ export class WarlockGame {
     }
     const top = [...this.ps.values()].sort((a, b) => b.roundDmg - a.roundDmg)[0];
     if (top && top.roundDmg > 0) this.msg(`Damage leader: ${this.name(top.id)} (${top.roundDmg.toFixed(1)})`, this.room.colorOf(top.id));
-    for (const s of this.ps.values()) s.gold += WARLOCK.goldPerRound;
+    // Interest on the gold kept through the round, then the round's pay.
+    for (const s of this.ps.values()) s.gold += Math.floor(s.gold * WARLOCK.interest) + WARLOCK.goldPerRound;
   }
 
   spawnWarlocks(preview) {
@@ -544,8 +545,8 @@ export class WarlockGame {
         u.buffs.absorbT = stat(def, 'duration', lvl);
         break;
       case 'windwalk':
-        u.buffs.invis = def.duration;
-        u.buffs.invisBonus = def.speedBonus;
+        u.buffs.invis = stat(def, 'duration', lvl);
+        u.buffs.invisBonus = stat(def, 'speedBonus', lvl);
         u.buffs.wwDmg = stat(def, 'dmg', lvl);
         this.updateSpeed(u);
         break;

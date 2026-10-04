@@ -204,3 +204,13 @@ test('self-explode upgrades hit harder but always cost the caster 10', () => {
   assert.ok(l3.dealt > l1.dealt, 'more damage');
   assert.ok(l3.push > l1.push * 1.3, 'more knockback');
 });
+
+test('interest: a quarter of the gold kept through a round, on top of the pay', () => {
+  const { g, a, b } = duel();
+  a.gold = 23;
+  b.gold = 0;
+  b.unit.alive = false;
+  g.tick(STEP); // a is the last one standing: the round ends
+  assert.equal(a.gold, 23 + 5 + WARLOCK.goldPerRound);
+  assert.equal(b.gold, WARLOCK.goldPerRound);
+});
