@@ -119,6 +119,7 @@ export class Gamepads {
       for (const [b, slot] of SLOT_BUTTONS) {
         if (!down(b)) continue;
         if (this.aim.start(slot)) {
+          input.cancelTarget();
           this.held = b;
           this.aim.set(R.x, R.y, R.m);
         }

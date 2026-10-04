@@ -312,16 +312,23 @@ export class Touch {
   buttonDown(e, b) {
     const slot = +b.dataset.slot;
     if (this.btn) return;
-    // MOBA: aim by dragging from the button. The default attack's button
-    // drags in either scheme (it has nothing to arm: a tap anywhere is it).
-    if ((this.opts.scheme === 'moba' || slot === this.defaultSlot) && this.aim.start(slot)) {
-      this.btn = { id: e.pointerId, slot, x0: e.clientX, y0: e.clientY, el: b, out: false };
+    const moba = this.opts.scheme === 'moba';
+    // Aim by dragging from the button: every aimed spell with MOBA controls,
+    // and in either scheme the default attack's button (it has nothing to
+    // arm: a tap anywhere is it) and drag-or-tap spells (Teleport).
+    if (!this.aim.start(slot)) return; // nothing to aim: a self-cast went off, or an error showed
+    const a = this.aim.cur.a;
+    if (moba || slot === this.defaultSlot || a.tapTarget) {
+      const armed = this.input.targeting === a.target; // a plain tap on it again disarms it
+      this.input.cancelTarget();
+      this.btn = { id: e.pointerId, slot, x0: e.clientX, y0: e.clientY, el: b, out: false, dragged: false, armed };
       try {
         b.setPointerCapture?.(e.pointerId);
       } catch {}
       return;
     }
-    if (this.opts.scheme !== 'moba') this.input.useSlot(slot);
+    this.aim.stop();
+    this.input.useSlot(slot); // tap scheme: ready the spell for the next tap
   }
 
   buttonMove(e) {
@@ -331,6 +338,7 @@ export class Touch {
     const dy = e.clientY - t.y0;
     const len = Math.hypot(dx, dy);
     if (len > 40) t.out = true;
+    if (len > TAP_MOVE) t.dragged = true;
     // Back on the button after dragging off it: letting go there cancels.
     const r = t.el.getBoundingClientRect();
     const over = t.out && e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
@@ -341,8 +349,14 @@ export class Touch {
     const t = this.btn;
     if (!t || e.pointerId !== t.id) return;
     this.btn = null;
-    if (cancelled) this.aim.stop();
-    else this.aim.release();
+    if (cancelled) return this.aim.stop();
+    // A plain tap on a drag-or-tap spell readies it for a tap on the ground.
+    if (!t.dragged && this.aim.cur?.a.tapTarget) {
+      this.aim.stop();
+      if (!t.armed) this.input.useSlot(t.slot);
+      return;
+    }
+    this.aim.release();
   }
 
   // -------------------------------------------------------------- taps

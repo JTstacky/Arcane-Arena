@@ -99,7 +99,8 @@ export const SPELLS = {
     name: 'Teleport', icon: '✨', color: '#d9f3ff', slot: 2,
     cost: 11, upCost: [6, 7, 8, 9, 10, 11], maxLevel: 7,
     desc: 'Blink to the target point. Takes 20% off your current knockback.',
-    cd: lin(16, 7), range: lin(770 * UNIT, 1190 * UNIT), kbCut: 0.8,
+    // Our balance (playtest): quicker and further than the map's 16 → 7 s, 770 → 1190.
+    cd: lin(12, 5), range: lin(900 * UNIT, 1400 * UNIT), kbCut: 0.8,
   },
   thrust: {
     name: 'Thrust', icon: '💨', color: '#ffe8a8', slot: 2,
@@ -145,13 +146,16 @@ export const SPELLS = {
     name: 'Shield', icon: '🛡️', color: '#ffe066', slot: 5,
     cost: 12, upCost: [6, 7, 8, 9, 10, 11], maxLevel: 7,
     desc: 'Autocast: goes up by itself when a projectile is about to hit you, reflecting projectiles that enter it.',
-    cd: lin(25, 17), duration: lin(2.8, 3.8), aoe: lin(200 * UNIT, 260 * UNIT),
+    // Our balance (playtest): the map's 25 → 17 s cooldown and 2.8 → 3.8 s made
+    // an autocast shield too strong.
+    cd: lin(32, 24), duration: lin(1.4, 1.9), aoe: lin(200 * UNIT, 260 * UNIT),
   },
   rush: {
     name: 'Rush', icon: '🔰', color: '#7fe0ff', slot: 5,
     cost: 12, upCost: [6, 7, 8, 9, 10, 11], maxLevel: 7,
     desc: 'A barrier that absorbs incoming damage — and the knockback that comes with it.',
-    cd: lin(21, 15), absorb: lin(5, 17), duration: lin(6, 9),
+    // Our balance (playtest): stronger and more often than the map's 21 → 15 s, 5 → 17.
+    cd: lin(16, 10), absorb: lin(9, 24), duration: lin(6, 9),
   },
   // ---- Column 6: control
   gravity: {

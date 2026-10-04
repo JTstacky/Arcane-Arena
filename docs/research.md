@@ -74,15 +74,15 @@ vv += wb * dir(from source to victim)
 | Lightning | 11 | 7 → 11 | 16.5 → 13.5 s | |
 | Homing | 11 | 7 → 12 | 15 → 11 s | lifetime 4.5 s |
 | Boomerang | 11 | 7 → 10 | 16 → 10.3 s | |
-| Teleport | 11 | — | 16 → 7 s | range 770 (+70 per level); cuts current knockback by 20% |
+| Teleport | 11 | — | 16 → 7 s | range 770 (+70 per level); cuts current knockback by 20%. **Our change (playtest):** 12 → 5 s, range 900 → 1400 |
 | Thrust | 11 | 5.4 (+0.4 per level) | 16.5 → 9 s | |
 | Swap | 11 | — | 15.8 → 8.8 s | |
 | Drain | 14 | 6 (+1 per level) | 22 s (−1 per level) | slows the target by 50 speed for 4 s (+1 s per level) |
 | Bouncer | 14 | 5.4 (+0.8 per level) | 20 → 15 s | −20% damage per bounce |
 | Meteor | 14 | 4 to 11 (+1 per level) | 20 s (−0.5 per level) | area 225 → 294. **Our change (playtest feedback):** 6 to 16 at level 1, up to 13 to 25 |
 | Wind Walk | 15 | 5.4 (+0.6 per level) | 30 → 19.5 s | 2.6 s, +200 speed |
-| Shield | 12 | — | 25 → 17 s | lasts 2.8 → 3.8 s |
-| Rush | 12 | — | 21 s (−1 per level) | absorbs 5 (+2 per level) |
+| Shield | 12 | — | 25 → 17 s | lasts 2.8 → 3.8 s. **Our change (playtest; it is autocast here):** 32 → 24 s, lasts 1.4 → 1.9 s |
+| Rush | 12 | — | 21 s (−1 per level) | absorbs 5 (+2 per level). **Our change (playtest):** 16 → 10 s, absorbs 9 → 24 |
 | Link | 11 | 0.2 (+0.1 per level) | 17 → 7 s | |
 | Gravity | 12 | 0.3 (+0.2 per level) | 21 → 19 s | force 13 (+1 per level) |
 | Scourge | — | 10 around you, including yourself | 3 s | 1 s wind-up that cannot be stopped; no walking during it, knockback still applies (per Justin) |

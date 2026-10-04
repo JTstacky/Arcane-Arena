@@ -5,7 +5,8 @@
 //  - Spells whose distance matters (Meteor, Teleport, Thrust, Boomerang) go
 //    as far as the drag or stick is pushed; the rest fly their full range.
 //  - With no direction (a quick tap, a centred stick) the spell goes at the
-//    nearest rival, or straight ahead if nobody is in reach.
+//    nearest rival, or straight ahead if nobody is in reach. Spells that are
+//    tap-targeted instead (Teleport) go straight ahead.
 
 // The nearest living rival warlock within `max` metres of (x, z), or null.
 export function nearestRival(world, myId, x, z, max) {
@@ -42,7 +43,6 @@ export class Aim {
       input.useSlot(i);
       return false;
     }
-    input.cancelTarget();
     this.cur = { slot: i, a, dx: 0, dy: 0, push: 0, cancel: false };
     this.show();
     return true;
@@ -85,7 +85,7 @@ export class Aim {
       uy = c.dy / len;
       dist = c.a.point ? Math.max(1, c.push * range) : range;
     } else {
-      const r = nearestRival(this.world, this.input.getMyId(), me.x, me.z, range * 1.25);
+      const r = !c.a.tapTarget && nearestRival(this.world, this.input.getMyId(), me.x, me.z, range * 1.25);
       if (r) {
         ux = r.x - me.x;
         uy = r.z - me.z;

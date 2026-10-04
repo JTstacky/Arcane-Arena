@@ -9,7 +9,10 @@ const SELF_CAST = new Set(['windwalk', 'rush', 'scourge']);
 const AUTOCAST = new Set(['shield']); // goes up by itself; its button only shows the cooldown
 // Spells whose target distance matters (drag-aimed on phones: drag further
 // to cast further); the rest fly their full range in the aimed direction.
-const POINT_AIM = new Set(['meteor', 'teleport', 'thrust', 'boomerang']);
+const POINT_AIM = new Set(['meteor', 'thrust', 'boomerang']);
+// Teleport on phones: drag from its button for a full-range jump that way,
+// or tap the button and then the ground to land exactly there.
+const DRAG_OR_TAP = new Set(['teleport']);
 
 startApp({
   ...meta,
@@ -53,7 +56,7 @@ startApp({
       if ((snap.me?.cd?.[spell] || 0) > 0) return { error: true };
       if (SELF_CAST.has(spell)) return { self: spell, hold: SPELLS[spell].castTime || 0 };
       const d = SPELLS[spell];
-      return { target: spell, name: d.name, range: d.range != null ? stat(d, 'range', me.sp[spell]) : null, aoe: d.aoe != null ? stat(d, 'aoe', me.sp[spell]) : null, point: POINT_AIM.has(spell) };
+      return { target: spell, name: d.name, range: d.range != null ? stat(d, 'range', me.sp[spell]) : null, aoe: d.aoe != null ? stat(d, 'aoe', me.sp[spell]) : null, point: POINT_AIM.has(spell), tapTarget: DRAG_OR_TAP.has(spell) };
     },
   },
   menuMap: { theme: 'lava', floor: { shape: 'disc', r: 15 }, bounds: 40, props: [] },
