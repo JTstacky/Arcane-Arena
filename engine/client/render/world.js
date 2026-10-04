@@ -1212,15 +1212,10 @@ totalEmissiveRadiance += vec3(1.0, 0.22, 0.02) * heat * heat * heat * (0.8 + vno
   // A drag- or stick-aimed spell (phones, gamepads; see aim.js): a band from
   // the warlock to the aim point, the spell's range, and its area if any.
   showAim(p) {
-    if (!this.aimBand) {
-      this.aimBand = new THREE.Mesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2).translate(0.5, 0, 0), new THREE.MeshBasicMaterial({ color: '#ffd860', transparent: true, opacity: 0.55, depthWrite: false, toneMapped: false }));
-      this.aimBand.renderOrder = 2;
-      this.scene.add(this.aimBand);
-    }
-    const band = this.aimBand;
+    const A = (this.aim ||= this.makeAim());
     const me = p && this.myView();
     if (!me) {
-      band.visible = false;
+      A.g.visible = false;
       this.showRange(null);
       this.showReticle(null);
       return;
@@ -1229,13 +1224,42 @@ totalEmissiveRadiance += vec3(1.0, 0.22, 0.02) * heat * heat * heat * (0.8 + vno
     const z = me.obj.position.z;
     const dx = p.x - x;
     const dz = p.y - z;
-    band.visible = true;
-    band.position.set(x, 0.08, z);
-    band.rotation.y = -Math.atan2(dz, dx);
-    band.scale.set(Math.max(0.1, Math.hypot(dx, dz)), 1, 0.9);
-    band.material.color.set(p.cancel ? '#ff4a3a' : '#ffd860');
+    const len = Math.hypot(dx, dz);
+    const HEAD = 0.9; // the arrowhead marks where the spell ends up
+    const body = Math.max(0.1, len - HEAD);
+    A.g.visible = true;
+    A.g.position.set(x, 0.08, z);
+    A.g.rotation.y = -Math.atan2(dz, dx);
+    A.fill.scale.set(body, 1, 0.9);
+    A.left.scale.x = A.right.scale.x = body;
+    A.head.position.x = body;
+    A.fillMat.color.set(p.cancel ? '#7a7a7a' : '#ffd860');
+    A.lineMat.color.set(p.cancel ? '#b0b0b0' : '#fff4c0');
     this.showRange(p.range);
     this.showReticle(p.aoe ? p : null, p.aoe);
+  }
+
+  // The aim indicator: a translucent band with bright edges and an arrowhead,
+  // so it reads clearly over the floor and over lava alike.
+  makeAim() {
+    const strip = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2).translate(0.5, 0, 0);
+    const fillMat = new THREE.MeshBasicMaterial({ color: '#ffd860', transparent: true, opacity: 0.3, depthWrite: false, toneMapped: false });
+    const lineMat = new THREE.MeshBasicMaterial({ color: '#fff4c0', transparent: true, opacity: 0.95, depthWrite: false, toneMapped: false });
+    const g = new THREE.Group();
+    const fill = new THREE.Mesh(strip, fillMat);
+    const left = new THREE.Mesh(strip, lineMat);
+    const right = new THREE.Mesh(strip, lineMat);
+    left.scale.set(1, 1, 0.07);
+    right.scale.set(1, 1, 0.07);
+    left.position.z = 0.45;
+    right.position.z = -0.45;
+    const tri = new THREE.Shape([new THREE.Vector2(0, -0.75), new THREE.Vector2(0.9, 0), new THREE.Vector2(0, 0.75)]);
+    const head = new THREE.Mesh(new THREE.ShapeGeometry(tri).rotateX(-Math.PI / 2), lineMat);
+    for (const m of [fill, left, right, head]) m.renderOrder = 2;
+    g.add(fill, left, right, head);
+    g.visible = false;
+    this.scene.add(g);
+    return { g, fill, left, right, head, fillMat, lineMat };
   }
 
   // ------------------------------------------------------------- events

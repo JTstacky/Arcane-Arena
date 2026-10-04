@@ -84,7 +84,7 @@ export function renderShell(cfg) {
     <div id="options" class="modal" hidden>
       <div class="panel">
         <h2>Options</h2>
-        ${cfg.quickCast ? '<label class="check"><input type="checkbox" id="opt-quick" /> Quick-cast (spells fire at the cursor on keypress)</label>' : ''}
+        ${cfg.quickCast ? '<label class="check mouseonly"><input type="checkbox" id="opt-quick" /> Quick-cast (spells fire at the cursor on keypress)</label>' : ''}
         <label class="check"><input type="checkbox" id="opt-mute" /> Mute sound (M)</label>
         <label class="field optsel">Controls
           <select id="opt-controls">
