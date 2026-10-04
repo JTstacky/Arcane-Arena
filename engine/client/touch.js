@@ -14,7 +14,7 @@
 //        relative to your warlock, and letting go casts it (see aim.js). A
 //        quick tap casts at the nearest rival; let go back on the button to
 //        cancel.
-//    Self-cast spells (Scourge…) fire at once in both;
+//    Self-cast spells (Self-Explode…) fire at once in both;
 //  - the camera follows the hero at a fixed distance. Once dead, dragging the
 //    battlefield or the joystick looks around, and tapping a player (or the
 //    arrows of the spectate bar) watches them.

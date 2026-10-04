@@ -65,14 +65,18 @@ export const SPELLS = {
     cost: 0, upCost: [7, 7, 7, 7, 7, 7], maxLevel: 7,
     desc: 'A fast bolt of fire that knocks back the first warlock it hits. Destroys enemy projectiles it meets. Lightning detonates it.',
     // 30 units per 0.03 s step for 33 steps; hits anything within 75 units of its centre.
-    // Each level also adds 60 units of range (not in the original map).
-    cd: 4.8, dmg: lin(7, 10), speed: 1000 * UNIT, range: lin(990, 1350).map((v) => v * UNIT), radius: 50 * UNIT,
+    // Each level also adds 60 units of range and takes 0.2 s off the cooldown
+    // (not in the original map, where only the damage grows).
+    cd: lin(4.8, 3.6), dmg: lin(7, 10), speed: 1000 * UNIT, range: lin(990, 1350).map((v) => v * UNIT), radius: 50 * UNIT,
   },
+  // Scourge in the original map; the id stays 'scourge' (art, saved games).
   scourge: {
-    name: 'Scourge', icon: '💥', color: '#c050ff', slot: 7,
+    name: 'Self-Explode', icon: '💥', color: '#c050ff', slot: 7,
     cost: 7, upCost: [7, 7], maxLevel: 3,
-    desc: 'After a 1 second wind-up, blast everything around you — but it costs you the same amount of health.',
-    cd: 3, dmg: [10, 12, 14], aoe: 250 * UNIT,
+    desc: 'After a 1 second wind-up you can’t stop, blow up: everyone around you is hurt and thrown back. It costs you 10 health every time (it can’t kill you). Upgrades add damage and knockback and shorten the cooldown, but the cost stays 10.',
+    // Our change: upgrades add knockback and cut the cooldown, and the cost to
+    // you stays 10 (in the map you lost as much as you dealt: 10/12/14).
+    cd: [3, 2.5, 2], dmg: [10, 13, 16], kbPct: [100, 125, 150], selfDmg: 10, aoe: 250 * UNIT,
     castTime: 1, // seconds of wind-up before the blast; it can't be cancelled
   },
   // ---- Column 1: projectiles

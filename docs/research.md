@@ -70,7 +70,7 @@ vv += wb * dir(from source to victim)
 
 | Spell | Buy cost | Damage | Cooldown | Other |
 |---|---|---|---|---|
-| Fireball | — | 7 (+0.5 per level) | 4.8 s | 1000 u/s, lifetime 1 s. **Our change (playtest feedback):** each level adds 60 range (990 → 1350) |
+| Fireball | — | 7 (+0.5 per level) | 4.8 s | 1000 u/s, lifetime 1 s. **Our change (playtest feedback):** each level adds 60 range (990 → 1350) and takes 0.2 s off the cooldown (4.8 → 3.6 s) |
 | Lightning | 11 | 7 → 11 | 16.5 → 13.5 s | |
 | Homing | 11 | 7 → 12 | 15 → 11 s | lifetime 4.5 s |
 | Boomerang | 11 | 7 → 10 | 16 → 10.3 s | |
@@ -85,7 +85,7 @@ vv += wb * dir(from source to victim)
 | Rush | 12 | — | 21 s (−1 per level) | absorbs 5 (+2 per level). **Our change (playtest):** 16 → 10 s, absorbs 9 → 24 |
 | Link | 11 | 0.2 (+0.1 per level) | 17 → 7 s | |
 | Gravity | 12 | 0.3 (+0.2 per level) | 21 → 19 s | force 13 (+1 per level) |
-| Scourge | — | 10 around you, including yourself | 3 s | 1 s wind-up that cannot be stopped; no walking during it, knockback still applies (per Justin) |
+| Scourge | — | 10 around you, including yourself | 3 s | 1 s wind-up that cannot be stopped; no walking during it, knockback still applies (per Justin). **Our change (playtest):** renamed Self-Explode; upgrades give 10/13/16 damage, 100/125/150% knockback and 3/2.5/2 s cooldown, while the cost to you stays 10 |
 
 ## What to check in the real game (for playtesting)
 

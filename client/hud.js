@@ -10,7 +10,7 @@ export function ico(id, emoji, cls = 'ico') {
 }
 
 const SPELL_STATS = [
-  ['dmg', 'Damage'], ['absorb', 'Absorbs'], ['cd', 'Cooldown', 's'], ['range', 'Range', 'm'], ['aoe', 'Radius', 'm'],
+  ['dmg', 'Damage'], ['selfDmg', 'Self damage'], ['kbPct', 'Knockback', '%'], ['absorb', 'Absorbs'], ['cd', 'Cooldown', 's'], ['range', 'Range', 'm'], ['aoe', 'Radius', 'm'],
   ['duration', 'Duration', 's'], ['bounces', 'Bounces'], ['life', 'Lifetime', 's'],
 ];
 
@@ -19,7 +19,7 @@ const SPELL_STATS = [
 function spellStats(id, level) {
   const d = SPELLS[id];
   const lv = Math.max(1, level);
-  const short = { Damage: 'Dmg', Cooldown: 'CD', Duration: 'Lasts', Lifetime: 'Lasts' };
+  const short = { Damage: 'Dmg', 'Self damage': 'Self dmg', Knockback: 'KB', Cooldown: 'CD', Duration: 'Lasts', Lifetime: 'Lasts' };
   const f = (v) => (Math.round(v * 10) / 10).toString();
   return SPELL_STATS.filter(([k]) => d[k] != null).map(([k, label, unit = '']) => {
     const cur = stat(d, k, lv);

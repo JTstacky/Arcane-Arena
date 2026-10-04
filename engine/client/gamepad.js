@@ -2,7 +2,7 @@
 //   left stick   walk (like the touch joystick: a move order a few metres
 //                ahead, re-sent while held; centring it stops)
 //   right stick  aim; when dead, look around (D-pad left/right watches a player)
-//   RT           Fireball · A B X Y LB RB  spells 2–7 · LT  Scourge
+//   RT           Fireball · A B X Y LB RB  spells 2–7 · LT  Self-Explode
 //                hold to see where it goes (aim.js), release to cast; with the
 //                right stick centred it goes at the nearest rival
 //   Start        ready up in the shop, else options · Back  scoreboard

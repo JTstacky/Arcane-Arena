@@ -470,9 +470,10 @@ export class WarlockGame {
           if (!v?.alive || o === s) continue;
           const dd = dist(u.x, u.y, v.x, v.y);
           if (dd > aoe + v.r) continue;
-          this.damage(o, dmg, s, v.x - u.x || 0.01, v.y - u.y); // full knockback: a close-range heavy hitter
+          // Full knockback (more with upgrades): a close-range heavy hitter.
+          this.damage(o, dmg, s, v.x - u.x || 0.01, v.y - u.y, stat(def, 'kbPct', lvl) / 100);
         }
-        u.hp = Math.max(1, u.hp - dmg);
+        u.hp = Math.max(1, u.hp - def.selfDmg); // the same cost at every level
         this.ev({ k: 'boom', x: round1(u.x), y: round1(u.y), r: aoe, c: def.color, big: 1 });
         break;
       }

@@ -184,3 +184,23 @@ test('once only bots are left alive, the round plays at 5x speed', () => {
   g.startRound();
   assert.equal(g.fastForward, false, 'a new round is back to normal');
 });
+
+test('self-explode upgrades hit harder but always cost the caster 10', () => {
+  const blast = (lvl) => {
+    const { g, a, b } = duel();
+    a.spells.scourge = lvl;
+    b.unit.x = 2;
+    const hpA = a.unit.hp;
+    const hpB = b.unit.hp;
+    g.command(1, { c: 'cast', spell: 'scourge', x: 0, y: 0 });
+    for (let i = 0; i < 40; i++) g.tick(STEP);
+    return { self: hpA - a.unit.hp, dealt: hpB - b.unit.hp, push: b.unit.x - 2 };
+  };
+  const l1 = blast(1);
+  const l3 = blast(3);
+  // (less a little health regenerated over the wind-up)
+  assert.ok(Math.abs(l1.self - 10) < 0.3, `level 1 cost ${l1.self}`);
+  assert.ok(Math.abs(l3.self - 10) < 0.3, `level 3 cost ${l3.self}`);
+  assert.ok(l3.dealt > l1.dealt, 'more damage');
+  assert.ok(l3.push > l1.push * 1.3, 'more knockback');
+});
