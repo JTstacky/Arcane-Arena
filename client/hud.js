@@ -3,6 +3,7 @@
 
 import { SPELLS, ITEMS, SLOT_KEYS, COLUMNS, MAX_ITEMS, WARLOCK, stat, upgradeCost } from '../shared/warlockData.js';
 import { HudBase, $, fmtTime, hpColor } from '../engine/client/ui/hud-base.js';
+import { TEAM_COLORS } from '../engine/shared/constants.js';
 
 // A painted icon from art/icons/, falling back to the emoji if it can't load.
 export function ico(id, emoji, cls = 'ico') {
@@ -76,18 +77,36 @@ export class ArcaneHud extends HudBase {
 
     const alive = {};
     for (const e of s.ents) if (e.k === 'warlock') alive[e.o] = !e.dead;
-    const rows = Object.entries(s.players).sort((a, b) => b[1].sc - a[1].sc || b[1].d - a[1].d);
+    // Team games: each team's points (its players' points added up), best team first.
+    const teamPts = {};
+    for (const p of Object.values(s.players)) if (p.tm != null) teamPts[p.tm] = (teamPts[p.tm] || 0) + p.sc;
+    const byTeam = (a, b) => (a.tm == null ? 0 : teamPts[b.tm] - teamPts[a.tm] || a.tm - b.tm);
+    const rows = Object.entries(s.players).sort((a, b) => byTeam(a[1], b[1]) || b[1].sc - a[1].sc || b[1].d - a[1].d);
     // The map's multiboard: Damage (one decimal), K.O.'s and Points.
+    let lastTeam = null;
     this.set('multiboard', `<div class="mb-title">Round: ${Math.max(1, s.round)}/${s.rounds}</div><table>
       <tr><th></th><th>Player</th><th title="Damage dealt">Damage</th><th title="Kills">K.O.'s</th><th title="A kill, an assist and a round win are worth a point each">Points</th></tr>
       ${rows.map(([id, p]) => {
         const r = this.playerRow(id);
-        return `<tr class="${alive[id] === false ? 'dead' : ''} ${+id === this.myId() ? 'me' : ''}"><td><i class="sw" style="background:${r.color}"></i></td><td style="color:${r.color}">${r.name}${r.connected === false ? ' ⚠' : ''}</td><td>${(+p.d).toFixed(1)}</td><td>${p.k}</td><td><b>${p.sc}</b></td></tr>`;
+        let head = '';
+        if (p.tm != null && p.tm !== lastTeam) {
+          lastTeam = p.tm;
+          const t = TEAM_COLORS[p.tm];
+          head = `<tr class="mbteam"><td><i class="sw" style="background:${t.hex}"></i></td><td colspan="3" style="color:${t.hex}">${t.name} team</td><td><b>${teamPts[p.tm]}</b></td></tr>`;
+        }
+        return `${head}<tr class="${alive[id] === false ? 'dead' : ''} ${+id === this.myId() ? 'me' : ''}"><td><i class="sw" style="background:${r.color}"></i></td><td style="color:${r.color}">${r.name}${r.connected === false ? ' ⚠' : ''}</td><td>${(+p.d).toFixed(1)}</td><td>${p.k}</td><td><b>${p.sc}</b></td></tr>`;
       }).join('')}</table>`);
 
     if (me) this.updateConsole(s, me);
     this.updateShop(s, me);
-    this.setCenter(s.phase === 'over' && s.standings ? this.overCard(s.standings, 'points', (st) => `<td>${st.wins} rounds · ${st.kills} kills · ${st.assists} assists · ${st.dmg.toFixed(1)} dmg</td>`) : '');
+    this.setCenter(s.phase === 'over' && s.standings ? this.resultCard(s.standings) : '');
+  }
+
+  // The game-over card; in team games it names the winning team.
+  resultCard(standings) {
+    const t = standings[0].team != null ? TEAM_COLORS[standings[0].team] : null;
+    const card = this.overCard(standings, 'points', (st) => `<td>${st.team != null ? `<i class="sw" style="background:${TEAM_COLORS[st.team].hex}"></i> ` : ''}${st.wins} rounds · ${st.kills} kills · ${st.assists} assists · ${st.dmg.toFixed(1)} dmg</td>`);
+    return t ? card.replace(/<h1[^>]*>.*?<\/h1>/, `<h1 style="color:${t.hex}">${t.name} team wins! <small>(${standings[0].teamScore} points)</small></h1>`) : card;
   }
 
   updateConsole(s, me) {

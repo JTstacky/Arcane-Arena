@@ -7,6 +7,7 @@ Arcane Arena is a browser remake of **Warlock**, the classic Warcraft III custom
 - **Knockback kills, not spells.** Spells do little damage but knock you back, and every point of damage you take makes the next hit throw you further. The lava does the killing.
 - **Shrinking arena.** The platform loses a tile every 15·√alive seconds.
 - **Rounds and shop.** The last warlock standing wins the round. Kills, assists and round wins score a point each. Between rounds you buy and upgrade spells and items.
+- **Teams (optional).** A lobby option splits everyone into 2, 3 or 4 teams. Players pick a team, and the host places the bots. Allies can't hurt each other: spells pass through them. The last team standing wins the round, and every member gets the point, even those who fell. The team with the most points (its players' points added up) wins the match.
 
 ![Arcane Arena](docs/screenshot.png)
 

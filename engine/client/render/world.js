@@ -16,7 +16,7 @@ import * as M from './models.js';
 import { Effects, artTexture, noiseTex } from './effects.js';
 import { Missile } from './missiles.js';
 import { play } from '../audio.js';
-import { TICK_RATE } from '../../shared/constants.js';
+import { TICK_RATE, TEAM_COLORS } from '../../shared/constants.js';
 
 const INTERP_DELAY = 0.11; // seconds behind the newest snapshot
 const FIRE_COLORS = new Set(['#ff7a1a', '#ff4a1a', '#ffcf6a', '#ff8040']);
@@ -204,6 +204,8 @@ export class World {
     this.colors = {}; // owner id -> hex
     this.spellColors = {}; // spell id -> hex, provided by the game
     this.names = {};
+    this.teams = {}; // owner id -> team index, in team games
+    this.allies = new Set(); // owner ids on my team
     this.myId = null;
     this.myUnit = null;
     this.focus = new THREE.Vector3();
@@ -527,6 +529,7 @@ export class World {
       this.overlay.appendChild(bar);
       v.bar = bar;
       v.hpFill = bar.querySelector('.hpfill');
+      this.markTeam(v);
       // A painted magic bubble (art/fx_shield_white, tinted).
       const shield = new THREE.Sprite(new THREE.SpriteMaterial({ map: artTexture('fx_shield_white'), color: '#ffe066', transparent: true, opacity: 0.8, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }));
       shield.position.y = 0.9;
@@ -1069,6 +1072,34 @@ totalEmissiveRadiance += vec3(1.0, 0.22, 0.02) * heat * heat * heat * (0.8 + vno
 
   myView() {
     return this.myUnit != null ? this.views.get(this.myUnit) : null;
+  }
+
+  // Team games: each player's team (`tm` in the snapshot's players) and my
+  // allies. Only redone when the teams change.
+  setTeams(players) {
+    let key = '';
+    for (const id in players) key += `${id}:${players[id].tm ?? ''},`;
+    if (key === this.teamKey) return;
+    this.teamKey = key;
+    this.teams = {};
+    for (const id in players) if (players[id].tm != null) this.teams[id] = players[id].tm;
+    const mine = this.teams[this.myId];
+    this.allies = new Set(Object.keys(this.teams).map(Number).filter((id) => id !== this.myId && mine != null && this.teams[id] === mine));
+    for (const v of this.views.values()) if (v.bar) this.markTeam(v);
+  }
+
+  // A chip in the team's colour before the name; allies' bars are outlined.
+  markTeam(v) {
+    const t = this.teams[v.owner];
+    v.bar.classList.toggle('ally', this.allies.has(v.owner));
+    let chip = v.bar.querySelector('.tm');
+    if (t == null) return chip?.remove();
+    if (!chip) {
+      chip = document.createElement('i');
+      chip.className = 'tm';
+      v.bar.firstChild.prepend(chip);
+    }
+    chip.style.background = TEAM_COLORS[t].hex;
   }
 
   // True once your hero has died and the camera is free to spectate.

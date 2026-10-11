@@ -87,6 +87,8 @@ vv += wb * dir(from source to victim)
 | Gravity | 12 | 0.3 (+0.2 per level) | 21 → 19 s | force 13 (+1 per level). **Our change (playtest):** 21 → 13 s, and the pull grows twice as fast as before (500 → 900 in our units, was → 680) |
 | Scourge | — | 10 around you, including yourself | 3 s | 1 s wind-up that cannot be stopped; no walking during it, knockback still applies (per Justin). **Our change (playtest):** renamed Self-Explode; upgrades give 10/13/16 damage, 100/125/150% knockback and 3/2.5/2 s cooldown, while the cost to you stays 10 |
 
+**Our addition: teams.** We haven't checked how the original handled team games, so ours is our own design. It's a lobby option (free-for-all, or 2 to 4 teams). Allies' spells pass through each other and do them no harm: no damage, knockback or Gravity pull. Shields don't reflect an ally's projectiles, and allies' projectiles don't cancel each other out. The last team standing wins the round, and every member gets the point. A team's points are its players' points added up. Teammates spawn side by side.
+
 ## What to check in the real game (for playtesting)
 
 1. From standing, right-click directly behind the warlock. Check whether it turns fully on the spot before walking, how long the about-face takes (about 0.33 s is expected), and whether it arcs.

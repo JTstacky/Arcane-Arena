@@ -87,6 +87,9 @@ input:focus { border-color: var(--gold); }
 #players li .tagx { font-size: 11px; color: var(--muted); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 4px; padding: 1px 5px; }
 #players li .swatch { width: 18px; height: 18px; border-radius: 4px; background: var(--c); border: 1px solid #000; cursor: pointer; }
 #players li button.kick { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 16px; }
+#players li.teamhead { background: none; padding: 6px 4px 0; border-left: none; border-bottom: 2px solid var(--c); border-radius: 0; color: var(--c); }
+#players li.teamhead small { color: var(--muted); font-weight: 400; }
+#players li.teamhead .btn { padding: 2px 10px; }
 .colorpick { display: flex; flex-wrap: wrap; gap: 4px; padding: 6px 0 2px 28px; }
 .colorpick i { width: 18px; height: 18px; border-radius: 4px; cursor: pointer; border: 1px solid #000; }
 .mode-cards { display: grid; gap: 8px; margin-bottom: 12px; }
@@ -137,6 +140,7 @@ body.inlobby #chat { bottom: 12px; }
 #multiboard td:nth-child(2) { max-width: 110px; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
 #multiboard tr.dead td { opacity: 0.4; text-decoration: line-through; }
 #multiboard tr.me td { background: rgba(255, 220, 120, 0.08); }
+#multiboard tr.mbteam td { border-top: 1px solid rgba(255, 255, 255, 0.15); padding-top: 5px; font-weight: 700; max-width: none; }
 .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; border: 1px solid #000; }
 #messages { position: absolute; left: 12px; bottom: 360px; pointer-events: none; }
 #hud-menu { position: absolute; top: 8px; right: 10px; }
@@ -198,6 +202,8 @@ body.phone #fsbtn { display: none; } /* phones go full screen when a game starts
 .hpbar { width: 56px; height: 6px; background: #300; border: 1px solid #000; border-radius: 2px; overflow: hidden; }
 .hpfill { height: 100%; width: 100%; background: #2fdc2f; }
 .unitbar.me .hpbar { width: 64px; height: 7px; }
+.uname .tm { display: inline-block; width: 8px; height: 8px; margin-right: 4px; border-radius: 2px; border: 1px solid #000; vertical-align: 0; }
+.unitbar.ally .hpbar { border-color: #9fe0ff; box-shadow: 0 0 0 1px #9fe0ff; }
 .ftext { position: absolute; left: 0; top: 0; font-weight: 800; font-size: 14px; text-shadow: 0 0 3px #000, 0 1px 2px #000; white-space: nowrap; will-change: transform; }
 .ftext.big { font-size: 18px; }
 

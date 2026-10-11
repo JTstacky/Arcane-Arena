@@ -235,3 +235,71 @@ test('plasma ball: 0.25 s charge, a slow ball, a wide blast that spares the cast
   assert.ok(hpB - b.unit.hp >= 10, `big hit: ${hpB - b.unit.hp}`);
   assert.ok(a.unit.hp >= hpA - 0.01, 'the caster is not hurt');
 });
+
+function teamGame(teams) {
+  const room = fakeRoom(teams.length);
+  room.teamOf = (id) => teams[id - 1];
+  const g = new WarlockGame(room, { rounds: 3, teams: 2 });
+  g.startRound();
+  g.obstacles = [];
+  const ps = teams.map((_, i) => g.ps.get(i + 1));
+  ps.forEach((s, i) => {
+    s.unit.x = i * 5;
+    s.unit.y = 0;
+    s.unit.setFacing(0);
+  });
+  return { g, ps };
+}
+
+test('teams: spells pass through allies and hit the enemy behind them', () => {
+  const { g, ps: [a, ally, foe] } = teamGame([0, 0, 1]);
+  const hpAlly = ally.unit.hp;
+  const hpFoe = foe.unit.hp;
+  g.command(1, { c: 'cast', spell: 'fireball', x: 10, y: 0 });
+  for (let i = 0; i < 40 && foe.unit.hp === hpFoe; i++) g.tick(STEP);
+  assert.equal(ally.unit.hp >= hpAlly - 0.01, true, 'the ally is unhurt');
+  assert.ok(foe.unit.hp < hpFoe, 'the enemy behind is hit');
+  // Area damage (Self-Explode) spares allies too.
+  const hp2 = ally.unit.hp;
+  g.damage(ally, 10, a, 1, 0);
+  assert.equal(ally.unit.hp, hp2, 'no friendly fire');
+});
+
+test('teams: the round ends when one team is left, and every member scores', () => {
+  const { g, ps: [a, b, c, d] } = teamGame([0, 1, 0, 1]);
+  a.unit.alive = false;
+  g.tick(STEP);
+  assert.equal(g.phase, 'play', 'both teams still have a warlock');
+  b.unit.alive = false;
+  d.unit.alive = false;
+  g.tick(STEP);
+  assert.equal(g.phase, 'roundEnd');
+  assert.deepEqual([a, b, c, d].map((s) => s.wins), [1, 0, 1, 0], 'the fallen teammate shares the win');
+  assert.deepEqual(g.teamScores(), { 0: 2, 1: 0 });
+});
+
+test('teams: with everyone on one team it is a free-for-all', () => {
+  const { g, ps: [a, b] } = teamGame([1, 1]);
+  assert.equal(g.teamMode, false);
+  assert.equal(g.allied(a.id, b.id), false);
+});
+
+test('lobby teams: players are dealt into teams and the host can move bots', async () => {
+  const { Room } = await import('../engine/server/room.js');
+  const room = new Room('T', () => {}, { id: 't', defaults: { teams: 0 }, options: { teams: [0, 2, 3, 4] } });
+  const host = room.join({ readyState: 1, send() {}, close() {} }, 'Host', 'tok');
+  for (let i = 0; i < 3; i++) room.addBot();
+  assert.equal(room.teamOf(host.id), null, 'no teams by default');
+  room.handle(host, { t: 'settings', teams: 2 });
+  assert.deepEqual(room.playerList().map((p) => room.teamOf(p.id)), [0, 1, 0, 1]);
+  const bot = room.playerList()[1];
+  room.handle(host, { t: 'team', id: bot.id, team: 0 });
+  assert.equal(room.teamOf(bot.id), 0, 'the host moved a bot');
+  room.handle(host, { t: 'team', team: 1 });
+  assert.equal(room.teamOf(host.id), 1, 'players pick their own team');
+  room.handle(host, { t: 'team', team: 5 });
+  assert.equal(room.teamOf(host.id), 1, 'no such team');
+  room.handle(host, { t: 'team', id: room.playerList()[3].id, team: 0 }); // 3 v 1
+  room.addBot();
+  assert.equal(room.teamOf(room.playerList()[4].id), 1, 'a newcomer joins the smaller team');
+});

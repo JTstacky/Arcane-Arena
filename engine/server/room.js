@@ -43,6 +43,30 @@ export class Room {
     return !!this.players.get(id)?.bot;
   }
 
+  // Team games: the number of teams (0: everyone for themselves) and the
+  // team a player is on (null without teams).
+  teamCount() {
+    return this.settings.teams || 0;
+  }
+
+  teamOf(id) {
+    const p = this.players.get(id);
+    return this.teamCount() && p ? p.team : null;
+  }
+
+  // The team with the fewest players, for someone joining.
+  emptiestTeam() {
+    const size = new Array(this.teamCount() || 1).fill(0);
+    for (const p of this.players.values()) if (p.team < size.length) size[p.team]++;
+    return size.indexOf(Math.min(...size));
+  }
+
+  // Deals everyone into the teams in turn, when the number of teams changes.
+  dealTeams() {
+    const n = this.teamCount() || 1;
+    this.playerList().forEach((p, i) => (p.team = i % n));
+  }
+
   isConnected(id) {
     const p = this.players.get(id);
     return !!p && (p.bot || p.connected);
@@ -77,7 +101,7 @@ export class Room {
     if (this.players.size >= MAX_PLAYERS) return { error: 'Room is full.' };
     const slot = this.freeSlot();
     if (slot < 0) return { error: 'Room is full.' };
-    const p = { id: nextPlayerId++, name: name || `Player ${slot + 1}`, slot, bot: false, ws, token, connected: true };
+    const p = { id: nextPlayerId++, name: name || `Player ${slot + 1}`, slot, team: this.emptiestTeam(), bot: false, ws, token, connected: true };
     this.players.set(p.id, p);
     if (this.hostId == null || !this.isConnected(this.hostId)) this.hostId = p.id;
     this.emptySince = null;
@@ -120,7 +144,7 @@ export class Room {
     const slot = this.freeSlot();
     const used = new Set([...this.players.values()].map((p) => p.name));
     const name = BOT_NAMES.find((n) => !used.has(n)) || `Bot ${slot + 1}`;
-    const p = { id: nextPlayerId++, name, slot, bot: true, connected: true };
+    const p = { id: nextPlayerId++, name, slot, team: this.emptiestTeam(), bot: true, connected: true };
     this.players.set(p.id, p);
     this.broadcastLobby();
   }
@@ -163,12 +187,24 @@ export class Room {
       }
       case 'settings':
         if (isHost && !this.game) {
+          const teams = this.teamCount();
           for (const [key, allowed] of Object.entries(this.gameDef.options || {})) {
             if (m[key] != null && allowed.includes(+m[key])) this.settings[key] = +m[key];
           }
+          if (this.teamCount() !== teams) this.dealTeams();
           this.broadcastLobby();
         }
         break;
+      case 'team': {
+        // Anyone picks their own team; the host also places the bots.
+        const who = m.id == null ? p : this.players.get(+m.id);
+        const team = +m.team;
+        if (!this.game && who && (who === p || (isHost && who.bot)) && team >= 0 && team < this.teamCount()) {
+          who.team = team;
+          this.broadcastLobby();
+        }
+        break;
+      }
       case 'addBot':
         if (isHost) this.addBot();
         break;
@@ -311,7 +347,7 @@ export class Room {
       host: this.hostId,
       settings: this.settings,
       inGame: !!this.game,
-      players: this.playerList().map((p) => ({ id: p.id, name: p.name, slot: p.slot, bot: p.bot, connected: p.connected })),
+      players: this.playerList().map((p) => ({ id: p.id, name: p.name, slot: p.slot, team: this.teamOf(p.id), bot: p.bot, connected: p.connected })),
     };
   }
 

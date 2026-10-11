@@ -397,7 +397,7 @@ export class Touch {
     if (!p) return;
     if (this.spectating()) {
       // Tap a player to watch them.
-      const v = nearestRival(this.world, this.getMyId(), p.x, p.y, 3);
+      const v = nearestRival(this.world, this.getMyId(), p.x, p.y, 3, true);
       if (v) this.world.spectate = v.id;
       return;
     }

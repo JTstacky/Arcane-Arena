@@ -9,11 +9,13 @@
 //    tap-targeted instead (Teleport) go straight ahead.
 
 // The nearest living rival warlock within `max` metres of (x, z), or null.
-export function nearestRival(world, myId, x, z, max) {
+// Allies don't count unless `allies` is set (to watch them when dead).
+export function nearestRival(world, myId, x, z, max, allies = false) {
   let best = null;
   let bd = max;
   for (const v of world.views.values()) {
     if (v.k !== 'warlock' || v.owner === myId || v.deadT > 0 || !v.obj.visible) continue;
+    if (!allies && world.allies?.has(v.owner)) continue;
     const d = Math.hypot(v.x - x, v.z - z);
     if (d < bd) {
       bd = d;

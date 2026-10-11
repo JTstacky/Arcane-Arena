@@ -13,6 +13,7 @@
 // the rules and numbers follow Warlock v1.02 (see shared/warlockData.js).
 
 import { SPELLS, ITEMS, WARLOCK, UNIT, MAX_ITEMS, stat, itemStat, upgradeCost } from '../shared/warlockData.js';
+import { TEAM_COLORS } from '../engine/shared/constants.js';
 import {
   Unit, newId, stepUnits, collideUnits, dist, clamp, rand, pick, round1, round2, unitSnap, wrapAngle,
 } from '../engine/server/sim.js';
@@ -41,6 +42,7 @@ export class WarlockGame {
     for (const p of room.playerList()) {
       this.ps.set(p.id, {
         id: p.id,
+        team: room.teamOf?.(p.id) ?? null,
         gold: WARLOCK.startGold,
         score: 0,
         wins: 0,
@@ -64,6 +66,12 @@ export class WarlockGame {
         bot: p.bot ? { think: 0, castLock: 0, strafe: Math.random() < 0.5 ? 1 : -1, shopAt: 0, style: pick(['aggro', 'mobile', 'control']) } : null,
       });
     }
+    // Team games: allies can't hurt each other and win rounds together. With
+    // everyone on one team it's a free-for-all after all.
+    const teams = new Set([...this.ps.values()].map((s) => s.team));
+    this.teamMode = teams.size > 1 && !teams.has(null);
+    if (!this.teamMode) for (const s of this.ps.values()) s.team = null;
+    if (settings.teams && !this.teamMode) this.msg('Everyone is on the same team, so it is every warlock for themselves.');
     this.tiles = WARLOCK.baseTiles + Math.floor(Math.sqrt(this.ps.size));
     this.baseArena = this.tiles * WARLOCK.tile;
     this.arenaR = this.baseArena;
@@ -115,7 +123,17 @@ export class WarlockGame {
     this.phase = 'roundEnd';
     this.timer = 3.5;
     const alive = [...this.ps.values()].filter((s) => s.unit && s.unit.alive);
-    if (alive.length === 1) {
+    if (this.teamMode && alive.length) {
+      // The last team standing: every member, fallen or not, gets the point.
+      const team = alive[0].team;
+      for (const s of this.ps.values()) {
+        if (s.team !== team) continue;
+        s.score++;
+        s.wins++;
+      }
+      this.msg(`${TEAM_COLORS[team].name} team wins round ${this.round}! (+1 point each)`, TEAM_COLORS[team].hex);
+      this.ev({ k: 'sfx', s: 'win' });
+    } else if (alive.length === 1) {
       const w = alive[0];
       w.score++;
       w.wins++;
@@ -132,8 +150,9 @@ export class WarlockGame {
 
   spawnWarlocks(preview) {
     // As in the map: evenly around a circle of 768 + 64·n units from a random
-    // start angle, everyone facing the centre.
+    // start angle, everyone facing the centre. Teammates stand side by side.
     const list = [...this.ps.values()];
+    if (this.teamMode) list.sort((a, b) => a.team - b.team);
     const R = Math.min(this.baseArena - 2 * WARLOCK.tile, WARLOCK.spawnBase + WARLOCK.spawnPerPlayer * list.length);
     const off = Math.random() * Math.PI * 2;
     this.spawnPoints = [];
@@ -492,7 +511,7 @@ export class WarlockGame {
             bestT = t;
           }
         };
-        for (const o of this.ps.values()) if (o.unit?.alive && o !== s) test(o.unit.x, o.unit.y, o.unit.r, { pawn: o });
+        for (const o of this.ps.values()) if (o.unit?.alive && o !== s && !this.allied(o.id, s.id)) test(o.unit.x, o.unit.y, o.unit.r, { pawn: o });
         for (const p of this.projectiles) if (p.kind === 'fireball') test(p.x, p.y, p.r, { fireball: p });
         for (const ob of this.obstacles) test(ob.x, ob.y, ob.r, { obstacle: ob });
         const ex = u.x + dx * bestT;
@@ -567,7 +586,7 @@ export class WarlockGame {
     const u = target.unit;
     // Once the round is decided, spells still in the air do no harm.
     if (!u?.alive || amount <= 0 || this.phase !== 'play') return;
-    if (u.buffs.invuln > 0) return;
+    if (u.buffs.invuln > 0 || (src && this.allied(src.id, target.id))) return; // no friendly fire
     if (u.buffs.absorb > 0) {
       const a = Math.min(u.buffs.absorb, amount);
       u.buffs.absorb -= a;
@@ -667,14 +686,35 @@ export class WarlockGame {
     }
     this.stepWorld(dt, true);
 
-    const alive = [...this.ps.values()].filter((s) => s.unit?.alive);
-    if (alive.length <= 1 && this.ps.size > 1) this.endRound();
-    else if (alive.length === 0) this.endRound();
+    const sides = this.sidesAlive();
+    if (sides <= 1 && this.ps.size > 1) this.endRound();
+    else if (sides === 0) this.endRound();
+  }
+
+  // How many players (or, in team games, teams) still have a warlock alive.
+  sidesAlive() {
+    const sides = new Set();
+    for (const s of this.ps.values()) if (s.unit?.alive) sides.add(this.teamMode ? `t${s.team}` : s.id);
+    return sides.size;
+  }
+
+  // Whether two players are on the same team (nobody is their own ally).
+  allied(a, b) {
+    if (!this.teamMode || a == null || b == null || a === b) return false;
+    const ta = this.ps.get(a)?.team;
+    return ta != null && ta === this.ps.get(b)?.team;
+  }
+
+  // Each team's points: the sum of its players' points.
+  teamScores() {
+    const t = {};
+    for (const s of this.ps.values()) t[s.team] = (t[s.team] || 0) + s.score;
+    return t;
   }
 
   gameDecided() {
     if (this.round < this.rounds) return false;
-    const scores = [...this.ps.values()].map((s) => s.score).sort((a, b) => b - a);
+    const scores = this.teamMode ? Object.values(this.teamScores()).sort((a, b) => b - a) : [...this.ps.values()].map((s) => s.score).sort((a, b) => b - a);
     const tied = scores.length > 1 && scores[0] === scores[1];
     return !tied || this.round >= this.rounds + MAX_EXTRA_ROUNDS;
   }
@@ -704,7 +744,7 @@ export class WarlockGame {
           // Running into someone while windwalking deals damage.
           for (const o of this.ps.values()) {
             const v = o.unit;
-            if (!v?.alive || v === u) continue;
+            if (!v?.alive || v === u || this.allied(s.id, o.id)) continue;
             if (dist(u.x, u.y, v.x, v.y) < u.r + v.r + 0.15) {
               this.damage(o, b.wwDmg, s, v.x - u.x || 0.01, v.y - u.y);
               this.ev({ k: 'boom', x: round1(v.x), y: round1(v.y), r: 1, c: SPELLS.windwalk.color });
@@ -721,7 +761,7 @@ export class WarlockGame {
         b.dash.t -= dt;
         for (const o of this.ps.values()) {
           const v = o.unit;
-          if (!v?.alive || v === u) continue;
+          if (!v?.alive || v === u || this.allied(s.id, o.id)) continue;
           if (dist(u.x, u.y, v.x, v.y) < u.r + v.r + SPELLS.thrust.radius * 0.5) {
             this.damage(o, stat(SPELLS.thrust, 'dmg', b.dash.lvl), s, b.dash.vx, b.dash.vy);
             this.ev({ k: 'boom', x: round1(v.x), y: round1(v.y), r: 1.2, c: SPELLS.thrust.color });
@@ -850,7 +890,7 @@ export class WarlockGame {
         let best = null;
         let bd = 30;
         for (const s of warlocks) {
-          if (s.id === p.owner || s.unit.buffs.invis > 0) continue;
+          if (s.id === p.owner || this.allied(s.id, p.owner) || s.unit.buffs.invis > 0) continue;
           const d = dist(p.x, p.y, s.unit.x, s.unit.y);
           if (d < bd) {
             bd = d;
@@ -891,6 +931,7 @@ export class WarlockGame {
         const pull = stat(def, 'pull', p.level);
         const dps = stat(def, 'dmg', p.level) / (stat(def, 'range', p.level) / stat(def, 'speed', p.level));
         for (const s of warlocks) {
+          if (this.allied(s.id, p.owner)) continue;
           const u = s.unit;
           const dx = p.x - u.x;
           const dy = p.y - u.y;
@@ -940,12 +981,13 @@ export class WarlockGame {
       if (p.kind === 'gravity') continue;
 
       // Shields raise themselves when a projectile is about to hit.
-      if (SOLID_PROJECTILES.has(p.kind)) for (const s of warlocks) if (s.id !== p.owner) this.autoShield(s, p);
+      // Allies' projectiles pass through each other, their shields and them.
+      if (SOLID_PROJECTILES.has(p.kind)) for (const s of warlocks) if (s.id !== p.owner && !this.allied(s.id, p.owner)) this.autoShield(s, p);
       // Shields reflect projectiles entering their radius.
       let reflected = false;
       for (const s of warlocks) {
         const u = s.unit;
-        if (s.id === p.owner || !(u.buffs.shield > 0)) continue;
+        if (s.id === p.owner || this.allied(s.id, p.owner) || !(u.buffs.shield > 0)) continue;
         const d = dist(p.x, p.y, u.x, u.y);
         if (d < u.buffs.shieldR) {
           const nx = (p.x - u.x) / (d || 1);
@@ -971,7 +1013,7 @@ export class WarlockGame {
 
       for (const s of warlocks) {
         const u = s.unit;
-        if (s.id === p.owner || p.hit.has(s.id)) continue;
+        if (s.id === p.owner || this.allied(s.id, p.owner) || p.hit.has(s.id)) continue;
         if (dist(p.x, p.y, u.x, u.y) > p.r + u.r) continue;
         this.onProjectileHit(p, s, owner, def);
         break;
@@ -981,7 +1023,7 @@ export class WarlockGame {
       // Opposing projectiles annihilate each other.
       if (SOLID_PROJECTILES.has(p.kind)) {
         for (const q of this.projectiles) {
-          if (q === p || q.dead || q.owner === p.owner || !SOLID_PROJECTILES.has(q.kind)) continue;
+          if (q === p || q.dead || q.owner === p.owner || this.allied(q.owner, p.owner) || !SOLID_PROJECTILES.has(q.kind)) continue;
           if (dist(p.x, p.y, q.x, q.y) < p.r + q.r) {
             p.dead = q.dead = true;
             // A Plasma Ball shot down still goes off.
@@ -1094,14 +1136,21 @@ export class WarlockGame {
     this.phase = 'over';
     this.over = true;
     const ranked = this.standings();
-    this.msg(`${this.name(ranked[0].id)} is the greatest warlock!`, this.room.colorOf(ranked[0].id));
+    if (this.teamMode) {
+      const t = TEAM_COLORS[ranked[0].team];
+      this.msg(`${t.name} team wins the match with ${ranked[0].teamScore} points!`, t.hex);
+      const mvp = [...ranked].sort((a, b) => b.score - a.score || b.dmg - a.dmg)[0];
+      this.msg(`Most valuable warlock: ${this.name(mvp.id)} (${mvp.score} points)`, this.room.colorOf(mvp.id));
+    } else this.msg(`${this.name(ranked[0].id)} is the greatest warlock!`, this.room.colorOf(ranked[0].id));
     this.ev({ k: 'sfx', s: 'victory' });
   }
 
+  // Players best first; in team games, the best team's players first.
   standings() {
+    const ts = this.teamScores();
     return [...this.ps.values()]
-      .map((s) => ({ id: s.id, score: s.score, wins: s.wins, kills: s.kills, assists: s.assists, dmg: round1(s.dmg) }))
-      .sort((a, b) => b.score - a.score || b.dmg - a.dmg);
+      .map((s) => ({ id: s.id, team: s.team, teamScore: this.teamMode ? ts[s.team] : undefined, score: s.score, wins: s.wins, kills: s.kills, assists: s.assists, dmg: round1(s.dmg) }))
+      .sort((a, b) => (this.teamMode ? b.teamScore - a.teamScore || a.team - b.team : 0) || b.score - a.score || b.dmg - a.dmg);
   }
 
   // ------------------------------------------------------------------- bots
@@ -1141,7 +1190,7 @@ export class WarlockGame {
     let target = null;
     let td = Infinity;
     for (const o of this.ps.values()) {
-      if (o === s || !o.unit?.alive || o.unit.buffs.invis > 0) continue;
+      if (o === s || !o.unit?.alive || o.unit.buffs.invis > 0 || this.allied(o.id, s.id)) continue;
       const d = dist(u.x, u.y, o.unit.x, o.unit.y);
       if (d < td) {
         td = d;
@@ -1152,7 +1201,7 @@ export class WarlockGame {
 
     // Dodge incoming projectiles.
     for (const p of this.projectiles) {
-      if (p.owner === s.id || p.kind === 'gravity') continue;
+      if (p.owner === s.id || p.kind === 'gravity' || this.allied(p.owner, s.id)) continue;
       const rx = u.x - p.x;
       const ry = u.y - p.y;
       const sp = Math.hypot(p.vx, p.vy) || 1;
@@ -1257,7 +1306,7 @@ export class WarlockGame {
 
     const players = {};
     for (const s of this.ps.values()) {
-      players[s.id] = { g: Math.floor(s.gold), k: s.kills, a: s.assists, w: s.wins, sc: s.score, d: round1(s.dmg), sp: s.spells, sl: s.slots, it: s.items, rd: s.ready };
+      players[s.id] = { g: Math.floor(s.gold), k: s.kills, a: s.assists, w: s.wins, sc: s.score, d: round1(s.dmg), sp: s.spells, sl: s.slots, it: s.items, rd: s.ready, tm: s.team ?? undefined };
     }
     const me = this.ps.get(pid);
     const snap = {

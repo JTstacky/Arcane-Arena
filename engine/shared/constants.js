@@ -23,3 +23,11 @@ export const PLAYER_COLORS = [
   { name: 'Dark Green', hex: '#106246' },
   { name: 'Brown', hex: '#7a4a14' },
 ];
+
+// Team colours for team games, shown beside the player colours.
+export const TEAM_COLORS = [
+  { name: 'Gold', hex: '#ffc531' },
+  { name: 'Azure', hex: '#4fb6ff' },
+  { name: 'Jade', hex: '#45e08a' },
+  { name: 'Rose', hex: '#ff6fa8' },
+];

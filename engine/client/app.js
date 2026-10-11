@@ -13,7 +13,7 @@ import { Predictor } from './predict.js';
 import { TOUCH, CONTROLS, setControls } from './device.js';
 import { play, unlockAudio, toggleMute, isMuted } from './audio.js';
 import { renderShell } from './shell.js';
-import { PLAYER_COLORS } from '../shared/constants.js';
+import { PLAYER_COLORS, TEAM_COLORS } from '../shared/constants.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -175,6 +175,10 @@ export function startApp(cfg) {
   $('players').addEventListener('click', (e) => {
     const kick = e.target.closest('[data-kick]');
     if (kick) return send({ t: 'kick', id: +kick.dataset.kick });
+    const join = e.target.closest('[data-team]');
+    if (join) return send({ t: 'team', team: +join.dataset.team });
+    const move = e.target.closest('[data-moveteam]');
+    if (move) return send({ t: 'team', id: +move.dataset.moveteam, team: +move.dataset.to });
     if (e.target.closest('.swatch.mine')) {
       state.colorPickOpen = !state.colorPickOpen;
       renderLobby();
@@ -213,14 +217,23 @@ export function startApp(cfg) {
     $('roomcode').textContent = L.code;
     $('pcount').textContent = `(${L.players.length}/10)`;
     const used = new Set(L.players.map((p) => p.slot));
-    $('players').innerHTML = L.players.map((p) => {
+    const nTeams = L.settings.teams || 0;
+    const row = (p) => {
       const c = PLAYER_COLORS[p.slot];
       const mine = p.id === state.myId;
+      // The host moves a bot to the next team.
+      const move = nTeams && isHost() && p.bot ? `<button class="kick" data-moveteam="${p.id}" data-to="${(p.team + 1) % nTeams}" title="Move to the ${TEAM_COLORS[(p.team + 1) % nTeams].name} team">⇄</button>` : '';
       return `<li style="--c:${c.hex}"><span class="swatch ${mine ? 'mine' : ''}" title="${mine ? 'Change colour' : c.name}"></span>
         <span class="nm">${escapeHtml(p.name)}</span>
         ${p.id === L.host ? '<span class="tagx">host</span>' : ''}${p.bot ? '<span class="tagx">bot</span>' : ''}${mine ? '<span class="tagx">you</span>' : ''}${!p.connected ? '<span class="tagx">offline</span>' : ''}
-        ${isHost() && !mine ? `<button class="kick" data-kick="${p.id}" title="Remove">✕</button>` : ''}</li>
+        ${move}${isHost() && !mine ? `<button class="kick" data-kick="${p.id}" title="Remove">✕</button>` : ''}</li>
         ${mine && state.colorPickOpen ? `<div class="colorpick">${PLAYER_COLORS.map((pc, i) => (used.has(i) ? '' : `<i data-color="${i}" style="background:${pc.hex}" title="${pc.name}"></i>`)).join('')}</div>` : ''}`;
+    };
+    const me = L.players.find((p) => p.id === state.myId);
+    // Team games list the players under their teams, each with a Join button.
+    $('players').innerHTML = !nTeams ? L.players.map(row).join('') : TEAM_COLORS.slice(0, nTeams).map((t, i) => {
+      const members = L.players.filter((p) => p.team === i);
+      return `<li class="teamhead" style="--c:${t.hex}"><span class="nm">${t.name} team <small>(${members.length})</small></span>${me && me.team !== i ? `<button class="btn small" data-team="${i}">Join</button>` : ''}</li>${members.map(row).join('')}`;
     }).join('');
     $('modeopts').innerHTML = cfg.options.map((o) => `<span>${o.label}:</span>${o.values.map((v, i) => `<button class="btn small ${L.settings[o.key] === v ? 'sel' : ''}" data-opt="${o.key}" data-val="${v}" ${isHost() ? '' : 'disabled'}>${o.labels?.[i] ?? v}</button>`).join('')}`).join('');
     $('addbot').hidden = !isHost();
@@ -266,6 +279,7 @@ export function startApp(cfg) {
       case 'snap':
         if (!state.inGame) return;
         state.snap = m;
+        world.setTeams(m.players);
         world.pushSnapshot(m);
         predictor?.snapshot(m);
         hud.update(m);
